@@ -40,6 +40,14 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function repairLatexExpression(expr: string): string {
+  return (expr || "")
+    .trim()
+    .replace(/\\frac\s*([A-Za-z0-9]+)\s*\{/g, "\\frac{$1}{")
+    .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
+    .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
+}
+
 function renderKatex(tex: string, displayMode: boolean): string {
   const cleaned = repairLatexExpression(tex || "");
   if (!cleaned) return "";
@@ -57,77 +65,173 @@ function renderKatex(tex: string, displayMode: boolean): string {
   }
 }
 
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function normalizeImageKey(value: string | undefined): string {
-  return decodeURIComponent(value || "")
+  return safeDecodeURIComponent(value || "")
     .trim()
     .replace(/^\.?\//, "")
     .replace(/^images\//, "")
     .replace(/^figures\//, "")
-    .replace(/\s+/g, " ")
+    .replace(/\s+/g, "")
     .toLowerCase();
 }
 
-function inferMimeFromName(name: string | undefined): string {
-  const value = (name || "").toLowerCase();
+function normalizeBase64(value: string): string {
+  return (value || "").replace(/\s+/g, "");
+}
 
-  if (value.endsWith(".jpg") || value.endsWith(".jpeg")) return "image/jpeg";
-  if (value.endsWith(".webp")) return "image/webp";
-  if (value.endsWith(".gif")) return "image/gif";
-  if (value.endsWith(".svg")) return "image/svg+xml";
+function looksLikeBase64Image(value: string): boolean {
+  const text = normalizeBase64(value || "");
+
+  if (!text) return false;
+  if (text.startsWith("data:image/")) return true;
+
+  // PNG
+  if (text.startsWith("iVBORw0KGgo")) return true;
+
+  // JPEG
+  if (text.startsWith("/9j/")) return true;
+
+  // GIF
+  if (text.startsWith("R0lGOD")) return true;
+
+  // WEBP
+  if (text.startsWith("UklGR")) return true;
+
+  // SVG base64
+  if (text.startsWith("PHN2Zy")) return true;
+
+  // 很长且只包含 base64 字符，也按裸 base64 处理。
+  return text.length > 500 && /^[A-Za-z0-9+/=]+$/.test(text);
+}
+
+function inferMimeFromBase64OrName(value: string, name?: string): string {
+  const text = normalizeBase64(value || "");
+  const lowerName = (name || "").toLowerCase();
+
+  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+
+  if (lowerName.endsWith(".webp")) {
+    return "image/webp";
+  }
+
+  if (lowerName.endsWith(".gif")) {
+    return "image/gif";
+  }
+
+  if (lowerName.endsWith(".svg")) {
+    return "image/svg+xml";
+  }
+
+  if (text.startsWith("/9j/")) {
+    return "image/jpeg";
+  }
+
+  if (text.startsWith("R0lGOD")) {
+    return "image/gif";
+  }
+
+  if (text.startsWith("UklGR")) {
+    return "image/webp";
+  }
+
+  if (text.startsWith("PHN2Zy")) {
+    return "image/svg+xml";
+  }
 
   return "image/png";
 }
 
-function imageValueToSrc(value: ImageValue | undefined, fallbackName?: string): string | null {
+function toImageSrc(value: unknown, fallbackName?: string): string | null {
   if (!value) return null;
 
   if (typeof value === "string") {
     const text = value.trim();
     if (!text) return null;
 
-    if (
-      text.startsWith("data:") ||
-      text.startsWith("http://") ||
-      text.startsWith("https://") ||
-      text.startsWith("/") ||
-      text.startsWith("blob:")
-    ) {
+    if (text.startsWith("data:image/")) {
       return text;
     }
 
-    return `data:${inferMimeFromName(fallbackName)};base64,${text}`;
+    if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("blob:")) {
+      return text;
+    }
+
+    // 重要：必须先判断裸 base64，再判断 "/" 路径。
+    // JPEG base64 常以 /9j/ 开头，如果先判断 "/"，会被误当成站内路径。
+    if (looksLikeBase64Image(text)) {
+      const clean = normalizeBase64(text);
+      const mime = inferMimeFromBase64OrName(clean, fallbackName);
+      return `data:${mime};base64,${clean}`;
+    }
+
+    if (text.startsWith("/")) {
+      return text;
+    }
+
+    return null;
   }
 
-  const direct = value.url || value.src || value.path;
-  if (
-    direct &&
-    (direct.startsWith("data:") ||
-      direct.startsWith("http://") ||
-      direct.startsWith("https://") ||
-      direct.startsWith("/") ||
-      direct.startsWith("blob:"))
-  ) {
-    return direct;
+  if (typeof value === "object") {
+    const item = value as {
+      data?: string;
+      base64?: string;
+      b64?: string;
+      content?: string;
+      image_base64?: string;
+      imageData?: string;
+      mime?: string;
+      mime_type?: string;
+      content_type?: string;
+      filename?: string;
+      name?: string;
+      path?: string;
+      src?: string;
+      url?: string;
+    };
+
+    const objectName = item.filename || item.name || fallbackName;
+
+    const direct = item.url || item.src || item.path;
+    if (direct) {
+      const directSrc = toImageSrc(direct, objectName);
+      if (directSrc) return directSrc;
+    }
+
+    const raw =
+      item.data ||
+      item.base64 ||
+      item.b64 ||
+      item.content ||
+      item.image_base64 ||
+      item.imageData;
+
+    if (!raw) return null;
+
+    if (raw.startsWith("data:image/")) {
+      return raw;
+    }
+
+    const clean = normalizeBase64(raw);
+    const mime =
+      item.mime ||
+      item.mime_type ||
+      item.content_type ||
+      inferMimeFromBase64OrName(clean, objectName);
+
+    return `data:${mime};base64,${clean}`;
   }
 
-  const raw =
-    value.data ||
-    value.base64 ||
-    value.b64 ||
-    value.content ||
-    value.image_base64 ||
-    value.imageData;
-
-  if (!raw) return null;
-  if (raw.startsWith("data:")) return raw;
-
-  const mime =
-    value.mime ||
-    value.mime_type ||
-    value.content_type ||
-    inferMimeFromName(value.filename || value.name || fallbackName);
-
-  return `data:${mime};base64,${raw}`;
+  return null;
 }
 
 function findImageSrc(
@@ -135,6 +239,10 @@ function findImageSrc(
   alt: string | undefined,
   images: Record<string, ImageValue>
 ): string | null {
+  // 如果 markdown 里的 src 本身就是 data URL、URL、站内路径或裸 base64，先直接规范化。
+  const srcAsImage = toImageSrc(src, alt || src);
+  if (srcAsImage) return srcAsImage;
+
   const candidates = [src, alt].map(normalizeImageKey).filter(Boolean);
 
   for (const candidate of candidates) {
@@ -142,8 +250,14 @@ function findImageSrc(
       const key = normalizeImageKey(name);
 
       const valueName =
-        typeof value === "object"
-          ? normalizeImageKey(value.filename || value.name || value.path || value.src || value.url)
+        typeof value === "object" && value
+          ? normalizeImageKey(
+              value.filename ||
+                value.name ||
+                value.path ||
+                value.src ||
+                value.url
+            )
           : "";
 
       const matched =
@@ -156,7 +270,7 @@ function findImageSrc(
             candidate.endsWith(valueName)));
 
       if (matched) {
-        return imageValueToSrc(value, src || alt || name);
+        return toImageSrc(value, src || alt || name);
       }
     }
   }
@@ -192,14 +306,6 @@ function restoreCodeBlocks(value: string, blocks: string[]): string {
   return result;
 }
 
-function repairLatexExpression(expr: string): string {
-  return (expr || "")
-    .trim()
-    .replace(/\\frac\s*([A-Za-z0-9]+)\s*\{/g, "\\frac{$1}{")
-    .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
-    .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
-}
-
 function repairReportMarkdown(value: string): string {
   const { text, blocks } = protectCodeBlocks(value || "");
 
@@ -212,7 +318,7 @@ function repairReportMarkdown(value: string): string {
     .replace(/\\\[/g, "$$")
     .replace(/\\\]/g, "$$");
 
-  // 防止模型输出的 4 空格缩进把公式/正文变成代码块
+  // 防止模型输出的 4 空格缩进把公式/正文变成代码块。
   repaired = repaired
     .split("\n")
     .map((line) => {
@@ -294,18 +400,7 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
   const components = useMemo(
     () => ({
       img: ({ src, alt }: { src?: string; alt?: string }) => {
-        const resolvedSrc = findImageSrc(src, alt, images);
-        const directSrc = src || "";
-
-        const finalSrc =
-          resolvedSrc ||
-          (directSrc.startsWith("data:") ||
-          directSrc.startsWith("http://") ||
-          directSrc.startsWith("https://") ||
-          directSrc.startsWith("/") ||
-          directSrc.startsWith("blob:")
-            ? directSrc
-            : "");
+        const finalSrc = findImageSrc(src, alt, images);
 
         if (!finalSrc) {
           return (
