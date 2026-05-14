@@ -50,6 +50,28 @@ export async function getPublicBackendConfig(): Promise<PublicConfig> {
   return backendRpc<PublicConfig>("public_config");
 }
 
+export async function getWorkbenchBootstrap(username: string): Promise<{
+  config: PublicConfig;
+  reports: ReportMeta[];
+  searches: SearchMeta[];
+}> {
+  return backendRpc<{ config: PublicConfig; reports: ReportMeta[]; searches: SearchMeta[] }>(
+    "workbench_bootstrap",
+    { username },
+  );
+}
+
+export async function loadReportViewBundle(username: string, reportId: string): Promise<{
+  meta: ReportMeta | null;
+  payload: ReportRecord | null;
+  logs: AgentLog[];
+}> {
+  return backendRpc<{ meta: ReportMeta | null; payload: ReportRecord | null; logs: AgentLog[] }>(
+    "load_report_view",
+    { username, report_id: reportId },
+  );
+}
+
 export async function normalizeReportMarkdown(mdText: string): Promise<string> {
   return backendRpc<string>("normalize_report_markdown", { md_text: mdText || "" });
 }
