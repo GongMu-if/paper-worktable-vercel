@@ -82,3 +82,53 @@ p { margin: 0 0 10px; }
   .main { padding: 18px; }
   .grid-2 { grid-template-columns: 1fr; }
 }
+/* Add these rules to src/app/globals.css (or your existing global CSS file). */
+.task-grid {
+  align-items: start;
+}
+
+.task-card {
+  align-self: start;
+  min-height: 0;
+}
+
+.file-input {
+  max-width: 100%;
+}
+
+.selected-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.selected-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.selected-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.button.tiny {
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .task-grid {
+    grid-template-columns: 1fr;
+  }
+}
