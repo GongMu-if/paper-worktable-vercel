@@ -13,10 +13,16 @@ type ImageValue =
   | {
       data?: string;
       base64?: string;
+      b64?: string;
+      content?: string;
+      image_base64?: string;
+      imageData?: string;
       mime?: string;
+      mime_type?: string;
       content_type?: string;
       filename?: string;
       name?: string;
+      path?: string;
       src?: string;
       url?: string;
     };
@@ -27,21 +33,34 @@ type Props = {
   normalize?: boolean;
 };
 
-function normalizeKey(value: string | undefined): string {
+function normalizeImageKey(value: string | undefined): string {
   return decodeURIComponent(value || "")
     .trim()
     .replace(/^\.?\//, "")
     .replace(/^images\//, "")
+    .replace(/^figures\//, "")
     .replace(/\s+/g, " ")
     .toLowerCase();
 }
 
-function imageValueToSrc(value: ImageValue | undefined): string | null {
+function inferMimeFromName(name: string | undefined): string {
+  const value = (name || "").toLowerCase();
+
+  if (value.endsWith(".jpg") || value.endsWith(".jpeg")) return "image/jpeg";
+  if (value.endsWith(".webp")) return "image/webp";
+  if (value.endsWith(".gif")) return "image/gif";
+  if (value.endsWith(".svg")) return "image/svg+xml";
+
+  return "image/png";
+}
+
+function imageValueToSrc(value: ImageValue | undefined, fallbackName?: string): string | null {
   if (!value) return null;
 
   if (typeof value === "string") {
     const text = value.trim();
     if (!text) return null;
+
     if (
       text.startsWith("data:") ||
       text.startsWith("http://") ||
@@ -51,17 +70,39 @@ function imageValueToSrc(value: ImageValue | undefined): string | null {
     ) {
       return text;
     }
-    return `data:image/png;base64,${text}`;
+
+    return `data:${inferMimeFromName(fallbackName)};base64,${text}`;
   }
 
-  const direct = value.url || value.src;
-  if (direct) return direct;
+  const direct = value.url || value.src || value.path;
+  if (
+    direct &&
+    (direct.startsWith("data:") ||
+      direct.startsWith("http://") ||
+      direct.startsWith("https://") ||
+      direct.startsWith("/") ||
+      direct.startsWith("blob:"))
+  ) {
+    return direct;
+  }
 
-  const raw = value.data || value.base64;
+  const raw =
+    value.data ||
+    value.base64 ||
+    value.b64 ||
+    value.content ||
+    value.image_base64 ||
+    value.imageData;
+
   if (!raw) return null;
   if (raw.startsWith("data:")) return raw;
 
-  const mime = value.mime || value.content_type || "image/png";
+  const mime =
+    value.mime ||
+    value.mime_type ||
+    value.content_type ||
+    inferMimeFromName(value.filename || value.name || fallbackName);
+
   return `data:${mime};base64,${raw}`;
 }
 
@@ -70,26 +111,30 @@ function findImageSrc(
   alt: string | undefined,
   images: Record<string, ImageValue>
 ): string | null {
-  const candidates = [src, alt].map(normalizeKey).filter(Boolean);
+  const candidates = [src, alt]
+    .map(normalizeImageKey)
+    .filter(Boolean);
 
   for (const candidate of candidates) {
     for (const [name, value] of Object.entries(images || {})) {
-      const key = normalizeKey(name);
+      const key = normalizeImageKey(name);
+
       const valueName =
         typeof value === "object"
-          ? normalizeKey(value.filename || value.name || value.src || value.url)
+          ? normalizeImageKey(value.filename || value.name || value.path || value.src || value.url)
           : "";
 
-      if (
+      const matched =
         candidate === key ||
         key.endsWith(candidate) ||
         candidate.endsWith(key) ||
         (!!valueName &&
           (candidate === valueName ||
             valueName.endsWith(candidate) ||
-            candidate.endsWith(valueName)))
-      ) {
-        return imageValueToSrc(value);
+            candidate.endsWith(valueName)));
+
+      if (matched) {
+        return imageValueToSrc(value, src || alt || name);
       }
     }
   }
@@ -117,17 +162,37 @@ function protectCodeBlocks(value: string): { text: string; blocks: string[] } {
 
 function restoreCodeBlocks(value: string, blocks: string[]): string {
   let result = value || "";
+
   blocks.forEach((block, index) => {
     result = result.replace(`@@CODE_BLOCK_${index}@@`, block);
   });
+
   return result;
 }
 
-/**
- * 只修正常见报告格式问题，不直接把公式渲染成 HTML。
- * 公式交给 remark-math + rehype-katex 处理，避免出现
- * <span class="katex">...</span> 被 Markdown 当成代码块显示。
- */
+function repairLatexExpression(expr: string): string {
+  return (expr || "")
+    .trim()
+    // 修复模型常见错误：\fracTP{TP + FN} -> \frac{TP}{TP + FN}
+    .replace(/\\frac\s*([A-Za-z0-9]+)\s*\{/g, "\\frac{$1}{")
+    // 修复 \fracTP TP 这种极端情况
+    .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}");
+}
+
+function looksLikeStandaloneLatex(line: string): boolean {
+  const value = line.trim();
+
+  if (!value) return false;
+  if (value.startsWith("#")) return false;
+  if (value.startsWith("|")) return false;
+  if (/^[-*+]\s+/.test(value)) return false;
+  if (/^\d+[.)、]\s+/.test(value)) return false;
+  if (value.startsWith(">")) return false;
+  if (value.includes("$")) return false;
+
+  return /\\(frac|mathrm|text|sum|prod|sqrt|alpha|beta|gamma|delta|lambda|mu|sigma|cdot|times|leq|geq|infty)\b/.test(value);
+}
+
 function repairReportMarkdown(value: string): string {
   const { text, blocks } = protectCodeBlocks(value || "");
 
@@ -140,19 +205,54 @@ function repairReportMarkdown(value: string): string {
     .replace(/\\\[/g, "\n\n$$\n")
     .replace(/\\\]/g, "\n$$\n\n");
 
-  // 许多模型会把普通段落误缩进 4 个空格，Markdown 会把它们当代码块。
-  // 保留 fenced code；只把明显的中文/英文正文缩进拉回正常段落。
-  repaired = repaired
-    .split("\n")
-    .map((line) => {
-      if (/^( {4,}|\t)([\u4e00-\u9fa5A-Za-z0-9（(【\[])/.test(line)) {
-        return line.replace(/^( {4,}|\t)+/, "");
-      }
-      return line;
-    })
-    .join("\n");
+  const lines = repaired.split("\n");
+  const output: string[] = [];
 
-  repaired = repaired.replace(/\$\s*\n\s*\$/g, "$$");
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // 很多报告会出现：\mathrm{F1...}=... $$ 其中，
+    // 这里把 $$ 前面的裸公式包成 display math，把后面的中文恢复成正文。
+    if (looksLikeStandaloneLatex(trimmed) && trimmed.includes("$$")) {
+      const [formulaPart, ...restParts] = trimmed.split("$$");
+      const restText = restParts.join("$$").trim();
+
+      output.push("");
+      output.push("$$");
+      output.push(repairLatexExpression(formulaPart));
+      output.push("$$");
+      output.push("");
+
+      if (restText) output.push(restText);
+      continue;
+    }
+
+    if (looksLikeStandaloneLatex(trimmed)) {
+      output.push("");
+      output.push("$$");
+      output.push(repairLatexExpression(trimmed));
+      output.push("$$");
+      output.push("");
+      continue;
+    }
+
+    // 避免普通正文被 4 空格缩进误识别为代码块。
+    if (/^( {4,}|\t)([\u4e00-\u9fa5A-Za-z0-9（(【\[])/.test(line)) {
+      output.push(line.replace(/^( {4,}|\t)+/, ""));
+      continue;
+    }
+
+    output.push(line);
+  }
+
+  repaired = output.join("\n");
+
+  // 修复 display math 的空白格式。
+  repaired = repaired
+    .replace(/\$\$\s*([^\n$][\s\S]*?)\s*\$\$/g, (_, expr: string) => {
+      return `\n\n$$\n${repairLatexExpression(expr)}\n$$\n\n`;
+    })
+    .replace(/\n{3,}/g, "\n\n");
 
   return restoreCodeBlocks(repaired, blocks);
 }
