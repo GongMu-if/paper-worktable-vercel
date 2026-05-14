@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { normalizeReportMarkdown } from "@/lib/api";
 
 type Props = {
@@ -27,11 +29,13 @@ export function MarkdownReport({ markdown, images = {}, normalize = true }: Prop
 
   useEffect(() => {
     let cancelled = false;
+
     async function run() {
       if (!normalize) {
         setDisplayMarkdown(markdown || "");
         return;
       }
+
       try {
         const normalized = await normalizeReportMarkdown(markdown || "");
         if (!cancelled) setDisplayMarkdown(normalized || markdown || "");
@@ -39,32 +43,43 @@ export function MarkdownReport({ markdown, images = {}, normalize = true }: Prop
         if (!cancelled) setDisplayMarkdown(markdown || "");
       }
     }
+
     run();
+
     return () => {
       cancelled = true;
     };
   }, [markdown, normalize]);
 
-  const components = useMemo(() => ({
-    img: ({ src, alt }: { src?: string; alt?: string }) => {
-      const b64 = findImageBase64(src, images);
-      if (!b64) {
-        return <span>{`![${alt || ""}](${src || ""})`}</span>;
-      }
-      const dataSrc = b64.startsWith("data:") ? b64 : `data:image/png;base64,${b64}`;
-      return (
-        <figure className="figure">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={dataSrc} alt={alt || "report image"} />
-          {alt ? <figcaption>{alt}</figcaption> : null}
-        </figure>
-      );
-    },
-  }), [images]);
+  const components = useMemo(
+    () => ({
+      img: ({ src, alt }: { src?: string; alt?: string }) => {
+        const b64 = findImageBase64(src, images);
+        if (!b64) {
+          return <span>{`![${alt || ""}](${src || ""})`}</span>;
+        }
+
+        const dataSrc = b64.startsWith("data:") ? b64 : `data:image/png;base64,${b64}`;
+
+        return (
+          <figure className="figure">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={dataSrc} alt={alt || "report image"} />
+            {alt ? <figcaption>{alt}</figcaption> : null}
+          </figure>
+        );
+      },
+    }),
+    [images]
+  );
 
   return (
     <div className="report-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components as never}>
+      <ReactMarkdown
+        remarkPlugins={[remarkMath, remarkGfm]}
+        rehypePlugins={[rehypeKatex]}
+        components={components as never}
+      >
         {displayMarkdown || "暂无内容。"}
       </ReactMarkdown>
     </div>
