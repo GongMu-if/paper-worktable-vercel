@@ -16,15 +16,26 @@ type Props = {
 function findImageBase64(src: string | undefined, images: Record<string, string>): string | null {
   const imageKey = (src || "").trim();
   if (!imageKey) return null;
+
   for (const [name, value] of Object.entries(images || {})) {
     if (imageKey === name || imageKey.includes(name) || name.includes(imageKey)) {
       return value;
     }
   }
+
   return null;
 }
 
-export function MarkdownReport({ markdown, images = {}, normalize = true }: Props) {
+function repairLatexMarkdown(value: string): string {
+  return (value || "")
+    .replace(/\\\$/g, "$")
+    .replace(/\\\[/g, "$$")
+    .replace(/\\\]/g, "$$")
+    .replace(/\\\(/g, "$")
+    .replace(/\\\)/g, "$");
+}
+
+export function MarkdownReport({ markdown, images = {}, normalize = false }: Props) {
   const [displayMarkdown, setDisplayMarkdown] = useState(markdown || "");
 
   useEffect(() => {
@@ -32,15 +43,15 @@ export function MarkdownReport({ markdown, images = {}, normalize = true }: Prop
 
     async function run() {
       if (!normalize) {
-        setDisplayMarkdown(markdown || "");
+        setDisplayMarkdown(repairLatexMarkdown(markdown || ""));
         return;
       }
 
       try {
         const normalized = await normalizeReportMarkdown(markdown || "");
-        if (!cancelled) setDisplayMarkdown(normalized || markdown || "");
+        if (!cancelled) setDisplayMarkdown(repairLatexMarkdown(normalized || markdown || ""));
       } catch {
-        if (!cancelled) setDisplayMarkdown(markdown || "");
+        if (!cancelled) setDisplayMarkdown(repairLatexMarkdown(markdown || ""));
       }
     }
 
@@ -55,6 +66,7 @@ export function MarkdownReport({ markdown, images = {}, normalize = true }: Prop
     () => ({
       img: ({ src, alt }: { src?: string; alt?: string }) => {
         const b64 = findImageBase64(src, images);
+
         if (!b64) {
           return <span>{`![${alt || ""}](${src || ""})`}</span>;
         }
@@ -77,8 +89,9 @@ export function MarkdownReport({ markdown, images = {}, normalize = true }: Prop
     <div className="report-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkMath, remarkGfm]}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
         components={components as never}
+        skipHtml={false}
       >
         {displayMarkdown || "暂无内容。"}
       </ReactMarkdown>
