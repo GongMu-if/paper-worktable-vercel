@@ -37,6 +37,12 @@ type MainView =
   | { type: "search"; searchJobId: string }
   | { type: "analysis-batch"; files: File[] };
 
+type SearchContext = {
+  topic: string;
+  requirements: string;
+  preprintRule: string;
+};
+
 function normalizeUsername(username: string): string {
   return (username || "").trim();
 }
@@ -342,11 +348,6 @@ export function Workbench() {
   const [searchTopic, setSearchTopic] = useState("");
   const [searchRequirements, setSearchRequirements] = useState("");
   const [preprintRule, setPreprintRule] = useState(DEFAULT_PREPRINT_RULE);
-  const [activeSearchContext, setActiveSearchContext] = useState({
-    topic: "",
-    requirements: "",
-    preprintRule: DEFAULT_PREPRINT_RULE,
-  });
   const [activeSearchJobId, setActiveSearchJobId] = useState("");
   const [currentSearchJobId, setCurrentSearchJobId] = useState("");
   const [finalResult, setFinalResult] = useState("");
@@ -361,6 +362,8 @@ export function Workbench() {
   const [selectedReportLogs, setSelectedReportLogs] = useState<AgentLog[]>([]);
   const [selectedSearchRecord, setSelectedSearchRecord] = useState<SearchRecord | null>(null);
   const [newFeedback, setNewFeedback] = useState("");
+  const [activeSearchContext, setActiveSearchContext] = useState<SearchContext | null>(null);
+  const [analysisSubmitting, setAnalysisSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const usernameKey = useMemo(() => canonicalUsername(currentUser), [currentUser]);
@@ -446,19 +449,15 @@ export function Workbench() {
     setConfigVersion("");
     setReports([]);
     setSearches([]);
+    setView({ type: "workspace" });
     setSelectedReportId(null);
     setSelectedSearchId(null);
-    setSelectedReportRecord(null);
-    setSelectedReportMeta(null);
-    setSelectedReportLogs([]);
-    setSelectedSearchRecord(null);
     setAppState("IDLE");
     setMessage("");
     setError("");
     setSearchTopic("");
     setSearchRequirements("");
     setPreprintRule(DEFAULT_PREPRINT_RULE);
-    setActiveSearchContext({ topic: "", requirements: "", preprintRule: DEFAULT_PREPRINT_RULE });
     setActiveSearchJobId("");
     setCurrentSearchJobId("");
     setFinalResult("");
@@ -467,9 +466,13 @@ export function Workbench() {
     setHasProvidedFeedback(false);
     setBatchRows([]);
     setReadyReports([]);
+    setSelectedReportRecord(null);
+    setSelectedReportMeta(null);
+    setSelectedReportLogs([]);
+    setSelectedSearchRecord(null);
     setNewFeedback("");
+    setActiveSearchContext(null);
     clearSelectedPdfFiles();
-    setView({ type: "workspace" });
   }
 
   function resetWorkspace() {
@@ -530,7 +533,7 @@ export function Workbench() {
     setFeedbackStartAt(null);
     setHasProvidedFeedback(false);
     setNewFeedback("");
-    setActiveSearchContext({ topic: "", requirements: "", preprintRule: DEFAULT_PREPRINT_RULE });
+    setActiveSearchContext(null);
     setBatchRows([]);
     setReadyReports([]);
     clearSelectedPdfFiles();
@@ -559,6 +562,16 @@ export function Workbench() {
     const latestReportTime = reportActivityTime(latestReport);
     const latestSearchTime = searchActivityTime(latestSearch);
 
+    if (latestSearch && ["queued", "processing"].includes((latestSearch.status || "").toLowerCase())) {
+      setSelectedSearchId(latestSearch.search_job_id);
+      setSelectedReportId(null);
+      setCurrentSearchJobId(latestSearch.search_job_id);
+      setActiveSearchJobId(latestSearch.search_job_id);
+      setView({ type: "workspace" });
+      setAppState("SEARCH_RUNNING");
+      return;
+    }
+
     if (latestSearch && latestSearchTime > latestReportTime) {
       void loadSearchView(latestSearch.search_job_id);
       return;
@@ -580,28 +593,24 @@ export function Workbench() {
       setError("请填写研究主题。");
       return;
     }
-
-    const submittedTopic = searchTopic.trim();
-    const submittedRequirements = searchRequirements;
-    const submittedPreprintRule = preprintRule;
-
     try {
+      const searchContext: SearchContext = {
+        topic: searchTopic.trim(),
+        requirements: searchRequirements,
+        preprintRule,
+      };
       resetWorkspace();
       setFinalResult("");
       setUiLogs([]);
       setHasProvidedFeedback(false);
       setFeedbackStartAt(null);
+      setActiveSearchContext(searchContext);
       setMessage("正在创建后台检索任务，并交由统一 Director 调度……");
-      setActiveSearchContext({
-        topic: submittedTopic,
-        requirements: submittedRequirements,
-        preprintRule: submittedPreprintRule,
-      });
       const job = await createPaperSearchJob({
         username: currentUser,
-        userTopic: submittedTopic,
-        userRequirements: submittedRequirements,
-        preprintRule: submittedPreprintRule,
+        userTopic: searchContext.topic,
+        userRequirements: searchContext.requirements,
+        preprintRule: searchContext.preprintRule,
       });
       await submitPaperSearchJob(job.search_job_id);
       await updatePaperSearchJobStatus(job.search_job_id, "processing", "后台检索任务已提交，等待 Agent 完成候选文献筛选");
@@ -667,14 +676,15 @@ export function Workbench() {
         setFinalResult(record.result_markdown || "该检索任务暂无结果。");
         setUiLogs(buildSearchUiLogs(record.agent_logs || []));
         setCurrentSearchJobId(searchJobId);
-        setActiveSearchContext({
+        const context: SearchContext = {
           topic: record.meta.topic || "",
           requirements: record.meta.requirements || "",
           preprintRule: record.meta.preprint_rule || DEFAULT_PREPRINT_RULE,
-        });
-        setSearchTopic(record.meta.topic || "");
-        setSearchRequirements(record.meta.requirements || "");
-        setPreprintRule(record.meta.preprint_rule || DEFAULT_PREPRINT_RULE);
+        };
+        setActiveSearchContext(context);
+        setSearchTopic(context.topic);
+        setSearchRequirements(context.requirements);
+        setPreprintRule(context.preprintRule);
         setFeedbackStartAt(Date.now());
         setAppState("WAITING_FEEDBACK");
         setView({ type: "workspace" });
@@ -693,65 +703,77 @@ export function Workbench() {
     setBatchRows([]);
     setReadyReports([]);
 
-    if (!submittedFiles.length) return;
+    if (!submittedFiles.length || analysisSubmitting) return;
 
-    let analysisCacheVersion = configVersion;
-    if (!analysisCacheVersion) {
-      try {
+    setAnalysisSubmitting(true);
+    try {
+      let analysisCacheVersion = configVersion;
+
+      if (!analysisCacheVersion) {
         const cfg = await getPublicBackendConfig();
         analysisCacheVersion = cfg.analysis_cache_version || "";
         setConfigVersion(analysisCacheVersion);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+      }
+
+      if (!analysisCacheVersion) {
+        setError("后端未返回 analysis_cache_version，无法生成 PDF 缓存键。");
         return;
       }
-    }
 
-    if (!analysisCacheVersion) {
-      setError("后端未返回 analysis_cache_version，无法生成 PDF 缓存键。");
-      return;
-    }
+      clearSelectedPdfFiles();
+      setView({ type: "analysis-batch", files: submittedFiles });
 
-    clearSelectedPdfFiles();
-    setView({ type: "analysis-batch", files: submittedFiles });
+      const rows: BatchRow[] = [];
+      const ready: ReadyReport[] = [];
+      const rerunStamp = Date.now();
 
-    const rows: BatchRow[] = [];
-    const ready: ReadyReport[] = [];
-    const runStamp = Date.now();
-    for (let index = 0; index < submittedFiles.length; index += 1) {
-      const file = submittedFiles[index];
-      const baseCacheKey = await getPdfCacheKey(file, analysisCacheVersion);
-      const cacheKey = `${baseCacheKey}:rerun:${runStamp}:${index + 1}`;
-      let row: BatchRow = {
-        index: index + 1,
-        source_name: file.name || `paper_${index + 1}.pdf`,
-        cache_key: cacheKey,
-        status: "processing",
-        progress_text: "任务正在初始化中，请稍候。",
-      };
-      try {
-        // 历史报告查重已关闭：不再读取 cached report，也不再复用同 cache_key 的旧任务。
-        // 每次上传都生成一个带 rerun 后缀的新 cache_key，让后端创建全新的解析任务。
-        const result = await createOrReuseAnalysisJob(currentUser, row.source_name, cacheKey);
-        row = {
-          ...row,
-          report_id: result.job.report_id,
-          status: result.job.status || "queued",
-          progress_text: result.job.progress_text || "任务已创建。",
+      for (let index = 0; index < submittedFiles.length; index += 1) {
+        const file = submittedFiles[index];
+        const baseCacheKey = await getPdfCacheKey(file, analysisCacheVersion);
+        const cacheKey = `${baseCacheKey}:rerun:${rerunStamp}:${index + 1}`;
+        let row: BatchRow = {
+          index: index + 1,
+          source_name: file.name || `paper_${index + 1}.pdf`,
+          cache_key: cacheKey,
+          status: "processing",
+          progress_text: "任务正在初始化中，请稍候。",
         };
-        if (result.should_submit) {
-          await submitAnalysisJob(result.job.report_id, row.source_name, cacheKey, file);
-          await updateAnalysisJobStatus(result.job.report_id, "processing", "后台任务已启动，等待离线解析完成");
-          row = { ...row, status: "processing", progress_text: "后台任务已创建，正在等待离线解析。" };
-        }
         rows.push(row);
-      } catch (err) {
-        rows.push({ ...row, status: "failed", progress_text: err instanceof Error ? err.message : String(err) });
+        setBatchRows([...rows]);
+
+        try {
+          // 历史报告查重已关闭：不再读取 cached report，也不再复用同 cache_key 的旧任务。
+          // 每次上传都生成一个带 rerun 后缀的新 cache_key，让后端创建全新的解析任务。
+          const result = await createOrReuseAnalysisJob(currentUser, row.source_name, cacheKey);
+          row = {
+            ...row,
+            report_id: result.job.report_id,
+            status: result.job.status || "queued",
+            progress_text: result.job.progress_text || "任务已创建。",
+          };
+          rows[index] = row;
+          setBatchRows([...rows]);
+
+          if (result.should_submit) {
+            await submitAnalysisJob(result.job.report_id, row.source_name, cacheKey, file);
+            await updateAnalysisJobStatus(result.job.report_id, "processing", "后台任务已启动，等待离线解析完成");
+            row = { ...row, status: "processing", progress_text: "后台任务已创建，正在等待离线解析。" };
+            rows[index] = row;
+            setBatchRows([...rows]);
+          }
+        } catch (err) {
+          rows[index] = { ...row, status: "failed", progress_text: err instanceof Error ? err.message : String(err) };
+          setBatchRows([...rows]);
+        }
       }
+
+      setReadyReports(ready);
+      await refreshHistories(currentUser);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAnalysisSubmitting(false);
     }
-    setBatchRows(rows);
-    setReadyReports(ready);
-    await refreshHistories(currentUser);
   }
 
   async function confirmSearch() {
@@ -768,36 +790,33 @@ export function Workbench() {
 
   async function submitFeedbackSearch() {
     if (!newFeedback.trim()) return;
-
-    const feedbackTopic = activeSearchContext.topic || searchTopic;
-    const feedbackRequirements = activeSearchContext.requirements || searchRequirements;
-    const feedbackPreprintRule = activeSearchContext.preprintRule || preprintRule || DEFAULT_PREPRINT_RULE;
-
-    if (!feedbackTopic.trim()) {
-      setError("缺少原始研究主题，无法提交修正检索。请重新发起一次文献检索。");
-      return;
-    }
-
     try {
       const previousSearchJobId = currentSearchJobId;
+      const context = activeSearchContext || {
+        topic: searchTopic.trim(),
+        requirements: searchRequirements,
+        preprintRule,
+      };
+
+      if (!context.topic.trim()) {
+        setError("缺少原始研究主题，无法提交修正检索。请重新发起一次文献检索。");
+        return;
+      }
+
       const job = await createPaperSearchJob({
         username: currentUser,
-        userTopic: feedbackTopic,
-        userRequirements: feedbackRequirements,
-        preprintRule: feedbackPreprintRule,
+        userTopic: context.topic,
+        userRequirements: context.requirements,
+        preprintRule: context.preprintRule,
         feedback: newFeedback.trim(),
         previousResult: finalResult,
       });
       await markPaperSearchJobSuperseded(previousSearchJobId, job.search_job_id);
       await submitPaperSearchJob(job.search_job_id);
       await updatePaperSearchJobStatus(job.search_job_id, "processing", "修正检索任务已提交，等待 Agent 完成新一轮筛选");
-      setActiveSearchContext({
-        topic: feedbackTopic,
-        requirements: feedbackRequirements,
-        preprintRule: feedbackPreprintRule,
-      });
       setActiveSearchJobId(job.search_job_id);
       setCurrentSearchJobId(job.search_job_id);
+      setActiveSearchContext(context);
       setHasProvidedFeedback(true);
       setFeedbackStartAt(null);
       setNewFeedback("");
@@ -874,7 +893,7 @@ export function Workbench() {
             ) : (
               <p className="small">尚未选择 PDF。可以多次点击“选择文件”追加论文。</p>
             )}
-            <button className="button full" disabled={!pdfFiles.length} onClick={() => startAnalysis(pdfFiles)}>启动深度解析</button>
+            <button className="button full" disabled={!pdfFiles.length || analysisSubmitting} onClick={() => startAnalysis(pdfFiles)}>{analysisSubmitting ? "正在提交..." : "启动深度解析"}</button>
           </div>
         </section>
 
