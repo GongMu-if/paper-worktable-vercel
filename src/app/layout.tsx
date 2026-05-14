@@ -4,10 +4,14 @@ import "katex/dist/katex.min.css";
 
 export const metadata: Metadata = {
   title: "学术文献智能工作台",
-  description: "Vercel frontend for paper search and analysis workflow.",
+  description: "论文精读与文献检索工作台",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="zh-CN">
       <body>{children}</body>
