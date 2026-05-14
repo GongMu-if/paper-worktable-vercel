@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import "./globals.css";
 import "katex/dist/katex.min.css";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "学术文献智能工作台",
