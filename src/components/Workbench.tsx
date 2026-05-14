@@ -7,14 +7,12 @@ import {
   createPaperSearchJob,
   ensureAppStorage,
   finalizePaperSearchJob,
-  getPublicBackendConfig,
+  getWorkbenchBootstrap,
   getUserCachedReport,
   getUserJobByCacheKey,
-  getUserJobState,
   getUserSearchJobState,
-  loadAgentLogs,
+  loadReportViewBundle,
   loadUserReportIndex,
-  loadUserReportRecord,
   loadUserSearchIndex,
   loadUserSearchRecord,
   markPaperSearchJobSuperseded,
@@ -360,17 +358,19 @@ export function Workbench() {
     let cancelled = false;
     async function init() {
       try {
-        await ensureAppStorage();
-        const cfg = await getPublicBackendConfig();
-        if (!cancelled) setConfigVersion(cfg.analysis_cache_version || "");
-        await refreshHistories(currentUser);
+        const bootstrap = await getWorkbenchBootstrap(currentUser);
+        if (!cancelled) {
+          setConfigVersion(bootstrap.config?.analysis_cache_version || "");
+          setReports(bootstrap.reports || []);
+          setSearches(bootstrap.searches || []);
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       }
     }
     init();
     return () => { cancelled = true; };
-  }, [currentUser, refreshHistories]);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!activeSearchJobId || !currentUser || appState !== "SEARCH_RUNNING") return;
@@ -475,23 +475,13 @@ export function Workbench() {
     setSelectedReportMeta(null);
     setSelectedReportLogs([]);
     try {
-      const meta = await getUserJobState(currentUser, reportId);
-      setSelectedReportMeta(meta);
-      const status = (meta?.status || "").toLowerCase();
-      if (status === "finished") {
-        const [payload, logs] = await Promise.all([
-          loadUserReportRecord(currentUser, reportId),
-          loadAgentLogs(currentUser, reportId),
-        ]);
-        if (payload) {
-          setSelectedReportMeta(payload.meta);
-          setSelectedReportRecord(payload.analysis_result);
-        }
-        setSelectedReportLogs(logs || []);
-      } else {
-        const logs = await loadAgentLogs(currentUser, reportId);
-        setSelectedReportLogs(logs || []);
+      const bundle = await loadReportViewBundle(currentUser, reportId);
+      setSelectedReportMeta(bundle.meta || null);
+      if (bundle.payload) {
+        setSelectedReportMeta(bundle.payload.meta);
+        setSelectedReportRecord(bundle.payload.analysis_result);
       }
+      setSelectedReportLogs(bundle.logs || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
