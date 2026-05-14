@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   authenticateUser,
   createOrReuseAnalysisJob,
@@ -69,6 +69,27 @@ function reportHistoryLabel(meta: ReportMeta): string {
   if (status === "failed") return `${shortName}｜解析失败`;
   const timestamp = (meta.updated_at || meta.created_at || "").slice(0, 16);
   return timestamp ? `${shortName}｜${timestamp}` : shortName;
+}
+
+function parseHistoryTime(value: string | undefined): number {
+  const text = (value || "").trim();
+  if (!text) return 0;
+  const parsed = Date.parse(text.includes("T") ? text : text.replace(" ", "T"));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function reportActivityTime(meta: ReportMeta | undefined): number {
+  if (!meta) return 0;
+  return parseHistoryTime(meta.updated_at || meta.created_at);
+}
+
+function searchActivityTime(meta: SearchMeta | undefined): number {
+  if (!meta) return 0;
+  return parseHistoryTime(meta.finalized_at || meta.updated_at || meta.created_at);
+}
+
+function fileIdentity(file: File): string {
+  return `${file.name}::${file.size}::${file.lastModified}`;
 }
 
 function buildSearchUiLogs(searchLogs: Array<Record<string, unknown>>): Array<{ title: string; content: string }> {
@@ -335,6 +356,7 @@ export function Workbench() {
   const [selectedReportLogs, setSelectedReportLogs] = useState<AgentLog[]>([]);
   const [selectedSearchRecord, setSelectedSearchRecord] = useState<SearchRecord | null>(null);
   const [newFeedback, setNewFeedback] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const usernameKey = useMemo(() => canonicalUsername(currentUser), [currentUser]);
 
@@ -431,6 +453,96 @@ export function Workbench() {
     setView({ type: "workspace" });
   }
 
+  function clearSelectedPdfFiles() {
+    setPdfFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function addPdfFiles(files: File[]) {
+    const pdfs = files.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
+    if (!pdfs.length) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setPdfFiles((previous) => {
+      const seen = new Set(previous.map(fileIdentity));
+      const merged = [...previous];
+
+      for (const file of pdfs) {
+        const key = fileIdentity(file);
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push(file);
+        }
+      }
+
+      return merged;
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function removePdfFile(index: number) {
+    setPdfFiles((previous) => previous.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  function resetToInitialView() {
+    setError("");
+    setMessage("");
+    setFinalResult("");
+    setUiLogs([]);
+    setActiveSearchJobId("");
+    setCurrentSearchJobId("");
+    setFeedbackStartAt(null);
+    setHasProvidedFeedback(false);
+    setNewFeedback("");
+    setBatchRows([]);
+    setReadyReports([]);
+    clearSelectedPdfFiles();
+    resetWorkspace();
+    setAppState("IDLE");
+    void refreshHistories(currentUser);
+  }
+
+  function openLatestActivity() {
+    setError("");
+    setMessage("");
+
+    if (batchRows.length) {
+      setView({ type: "analysis-batch", files: [] });
+      return;
+    }
+
+    if (activeSearchJobId) {
+      setView({ type: "workspace" });
+      setAppState("SEARCH_RUNNING");
+      return;
+    }
+
+    const latestReport = reports[0];
+    const latestSearch = searches[0];
+    const latestReportTime = reportActivityTime(latestReport);
+    const latestSearchTime = searchActivityTime(latestSearch);
+
+    if (latestSearch && latestSearchTime > latestReportTime) {
+      void loadSearchView(latestSearch.search_job_id);
+      return;
+    }
+
+    if (latestReport) {
+      void loadReportView(latestReport.report_id);
+      return;
+    }
+
+    resetWorkspace();
+    setAppState("IDLE");
+  }
+
   async function startPaperSearch() {
     setError("");
     setMessage("");
@@ -457,6 +569,9 @@ export function Workbench() {
       setCurrentSearchJobId(job.search_job_id);
       setAppState("SEARCH_RUNNING");
       setMessage("后台文献检索任务已提交。页面会自动轮询状态。关闭页面后仍可稍后重新登录查看结果。");
+      setSearchTopic("");
+      setSearchRequirements("");
+      setPreprintRule(DEFAULT_PREPRINT_RULE);
       await refreshHistories(currentUser);
     } catch (err) {
       setAppState("IDLE");
@@ -527,21 +642,25 @@ export function Workbench() {
   }
 
   async function startAnalysis(files: File[]) {
+    const submittedFiles = [...files];
     setError("");
     setMessage("");
-    setView({ type: "analysis-batch", files });
     setBatchRows([]);
     setReadyReports([]);
-    if (!files.length) return;
+
+    if (!submittedFiles.length) return;
     if (!configVersion) {
       setError("后端未返回 analysis_cache_version，无法生成 PDF 缓存键。");
       return;
     }
 
+    clearSelectedPdfFiles();
+    setView({ type: "analysis-batch", files: submittedFiles });
+
     const rows: BatchRow[] = [];
     const ready: ReadyReport[] = [];
-    for (let index = 0; index < files.length; index += 1) {
-      const file = files[index];
+    for (let index = 0; index < submittedFiles.length; index += 1) {
+      const file = submittedFiles[index];
       const baseCacheKey = await getPdfCacheKey(file, configVersion);
       const cacheKey = `${baseCacheKey}:rerun:${Date.now()}:${index + 1}`;
       let row: BatchRow = {
@@ -629,12 +748,9 @@ export function Workbench() {
         searches={searches}
         selectedReportId={selectedReportId}
         selectedSearchId={selectedSearchId}
-        onRefresh={() => refreshHistories()}
+        onRefresh={resetToInitialView}
         onLogout={logout}
-        onSelectWorkspace={() => {
-          resetWorkspace();
-          setAppState("IDLE");
-        }}
+        onSelectWorkspace={openLatestActivity}
         onSelectReport={loadReportView}
         onSelectSearch={loadSearchView}
       />
@@ -642,8 +758,8 @@ export function Workbench() {
         {error ? <div className="notice error">{error}</div> : null}
         {message ? <div className="notice">{message}</div> : null}
 
-        <section className="grid-2">
-          <div className="card stack">
+        <section className="grid-2 task-grid">
+          <div className="card stack task-card">
             <h2>文献检索</h2>
             <div className="stack-sm">
               <label className="small">研究主题</label>
@@ -660,10 +776,30 @@ export function Workbench() {
             <button className="button full" onClick={startPaperSearch} disabled={!searchTopic.trim() || appState === "SEARCH_RUNNING"}>启动文献检索任务</button>
           </div>
 
-          <div className="card stack">
+          <div className="card stack task-card">
             <h2>论文精读入口</h2>
             <p className="muted">上传一篇或多篇 PDF，后端会分别生成结构化精读报告并保存到当前账号档案。</p>
-            <input className="file-input" type="file" accept="application/pdf" multiple onChange={(event) => setPdfFiles(Array.from(event.target.files || []))} />
+            <input
+              ref={fileInputRef}
+              className="file-input"
+              type="file"
+              accept="application/pdf"
+              multiple
+              onChange={(event) => addPdfFiles(Array.from(event.target.files || []))}
+            />
+            {pdfFiles.length ? (
+              <div className="selected-file-list">
+                {pdfFiles.map((file, index) => (
+                  <div key={fileIdentity(file)} className="selected-file-item">
+                    <span className="selected-file-name">{index + 1}. {file.name}</span>
+                    <button className="button secondary tiny" type="button" onClick={() => removePdfFile(index)}>删除</button>
+                  </div>
+                ))}
+                <button className="button secondary" type="button" onClick={clearSelectedPdfFiles}>清空已选文件</button>
+              </div>
+            ) : (
+              <p className="small">尚未选择 PDF。可以多次点击“选择文件”追加论文。</p>
+            )}
             <button className="button full" disabled={!pdfFiles.length} onClick={() => startAnalysis(pdfFiles)}>启动深度解析</button>
           </div>
         </section>
@@ -775,7 +911,7 @@ export function Workbench() {
                 ))}
               </div>
             ) : null}
-            <button className="button secondary" onClick={() => { setBatchRows([]); setReadyReports([]); setPdfFiles([]); setView({ type: "workspace" }); refreshHistories(); }}>返回当前工作区</button>
+            <button className="button secondary" onClick={() => { setBatchRows([]); setReadyReports([]); clearSelectedPdfFiles(); setView({ type: "workspace" }); refreshHistories(); }}>返回当前工作区</button>
           </div>
         ) : null}
       </main>
