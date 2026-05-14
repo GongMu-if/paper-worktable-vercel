@@ -7,12 +7,12 @@ import {
   createPaperSearchJob,
   ensureAppStorage,
   finalizePaperSearchJob,
-  getWorkbenchBootstrap,
-  getUserCachedReport,
-  getUserJobByCacheKey,
+  getPublicBackendConfig,
+  getUserJobState,
   getUserSearchJobState,
-  loadReportViewBundle,
+  loadAgentLogs,
   loadUserReportIndex,
+  loadUserReportRecord,
   loadUserSearchIndex,
   loadUserSearchRecord,
   markPaperSearchJobSuperseded,
@@ -358,19 +358,17 @@ export function Workbench() {
     let cancelled = false;
     async function init() {
       try {
-        const bootstrap = await getWorkbenchBootstrap(currentUser);
-        if (!cancelled) {
-          setConfigVersion(bootstrap.config?.analysis_cache_version || "");
-          setReports(bootstrap.reports || []);
-          setSearches(bootstrap.searches || []);
-        }
+        await ensureAppStorage();
+        const cfg = await getPublicBackendConfig();
+        if (!cancelled) setConfigVersion(cfg.analysis_cache_version || "");
+        await refreshHistories(currentUser);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       }
     }
     init();
     return () => { cancelled = true; };
-  }, [currentUser]);
+  }, [currentUser, refreshHistories]);
 
   useEffect(() => {
     if (!activeSearchJobId || !currentUser || appState !== "SEARCH_RUNNING") return;
@@ -475,13 +473,23 @@ export function Workbench() {
     setSelectedReportMeta(null);
     setSelectedReportLogs([]);
     try {
-      const bundle = await loadReportViewBundle(currentUser, reportId);
-      setSelectedReportMeta(bundle.meta || null);
-      if (bundle.payload) {
-        setSelectedReportMeta(bundle.payload.meta);
-        setSelectedReportRecord(bundle.payload.analysis_result);
+      const meta = await getUserJobState(currentUser, reportId);
+      setSelectedReportMeta(meta);
+      const status = (meta?.status || "").toLowerCase();
+      if (status === "finished") {
+        const [payload, logs] = await Promise.all([
+          loadUserReportRecord(currentUser, reportId),
+          loadAgentLogs(currentUser, reportId),
+        ]);
+        if (payload) {
+          setSelectedReportMeta(payload.meta);
+          setSelectedReportRecord(payload.analysis_result);
+        }
+        setSelectedReportLogs(logs || []);
+      } else {
+        const logs = await loadAgentLogs(currentUser, reportId);
+        setSelectedReportLogs(logs || []);
       }
-      setSelectedReportLogs(bundle.logs || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -534,7 +542,8 @@ export function Workbench() {
     const ready: ReadyReport[] = [];
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
-      const cacheKey = await getPdfCacheKey(file, configVersion);
+      const baseCacheKey = await getPdfCacheKey(file, configVersion);
+      const cacheKey = `${baseCacheKey}:rerun:${Date.now()}:${index + 1}`;
       let row: BatchRow = {
         index: index + 1,
         source_name: file.name || `paper_${index + 1}.pdf`,
@@ -543,34 +552,8 @@ export function Workbench() {
         progress_text: "任务正在初始化中，请稍候。",
       };
       try {
-        const cachedReport = await getUserCachedReport(currentUser, cacheKey);
-        if (cachedReport) {
-          row = { ...row, status: "finished", progress_text: "解析完成" };
-          ready.push({ index: row.index, source_name: row.source_name, cache_key: cacheKey, analysis_result: cachedReport, result_source: "history_cache" });
-          rows.push(row);
-          continue;
-        }
-
-        const existingJob = await getUserJobByCacheKey(currentUser, cacheKey);
-        if (existingJob) {
-          const status = (existingJob.status || "").toLowerCase();
-          row = {
-            ...row,
-            report_id: existingJob.report_id,
-            status: existingJob.status || "processing",
-            progress_text: existingJob.progress_text || row.progress_text,
-          };
-          if (status === "finished" && existingJob.has_report) {
-            const report = await getUserCachedReport(currentUser, cacheKey);
-            if (report) {
-              row = { ...row, status: "finished", progress_text: "解析完成" };
-              ready.push({ index: row.index, source_name: row.source_name, cache_key: cacheKey, analysis_result: report, result_source: "history_cache" });
-            }
-          }
-          rows.push(row);
-          continue;
-        }
-
+        // 历史报告查重已关闭：不再读取 cached report，也不再复用同 cache_key 的旧任务。
+        // 每次上传都生成一个带 rerun 后缀的新 cache_key，让后端创建全新的解析任务。
         const result = await createOrReuseAnalysisJob(currentUser, row.source_name, cacheKey);
         row = {
           ...row,
@@ -787,7 +770,6 @@ export function Workbench() {
                 {readyReports.map((report) => (
                   <div key={report.cache_key} className="card-soft">
                     <h3>第 {report.index} 篇论文：{report.source_name}</h3>
-                    {report.result_source === "history_cache" ? <div className="notice">检测到当前账号下已存在历史报告，已直接读取，无需重新解析。</div> : null}
                     <AnalysisReportView analysisResult={report.analysis_result} sourceName={report.source_name} cacheKey={report.cache_key} />
                   </div>
                 ))}
