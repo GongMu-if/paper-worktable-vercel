@@ -317,7 +317,14 @@ function repairReportMarkdown(value: string): string {
     .replace(/\\\)/g, "$")
     .replace(/\\\[/g, "$$")
     .replace(/\\\]/g, "$$");
+  repaired = repaired.replace(
+    /\$([^$\n]+?)\s*\(\$([^$\n]+?)\$\)/g,
+    (_, before: string, inside: string) => {
+      return `$${before.trim()}$（$${inside.trim()}$）`;
+    }
+  );
 
+  repaired = repaired.replace(/（\*）/g, "（\\*）");
   // 防止模型输出的 4 空格缩进把公式/正文变成代码块。
   repaired = repaired
     .split("\n")
