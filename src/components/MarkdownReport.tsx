@@ -13,7 +13,10 @@ type Props = {
   normalize?: boolean;
 };
 
-function findImageBase64(src: string | undefined, images: Record<string, string>): string | null {
+function findImageBase64(
+  src: string | undefined,
+  images: Record<string, string>
+): string | null {
   const imageKey = (src || "").trim();
   if (!imageKey) return null;
 
@@ -43,7 +46,7 @@ function renderKatex(tex: string, displayMode: boolean): string {
       displayMode,
       throwOnError: false,
       strict: false,
-      trust: false
+      trust: false,
     });
   } catch {
     const delimiter = displayMode ? "$$" : "$";
@@ -71,9 +74,11 @@ function protectCodeBlocks(value: string): { text: string; blocks: string[] } {
 
 function restoreCodeBlocks(value: string, blocks: string[]): string {
   let result = value || "";
+
   blocks.forEach((block, index) => {
     result = result.replace(`@@CODE_BLOCK_${index}@@`, block);
   });
+
   return result;
 }
 
@@ -91,6 +96,7 @@ function repairLatexText(value: string): string {
         .filter(Boolean)
         .map((item) => `\\mathrm{${item}}`)
         .join(", ");
+
       return `\\in \\{${renderedItems}\\}`;
     });
 }
@@ -110,7 +116,11 @@ function renderMathInMarkdown(value: string): string {
   return restoreCodeBlocks(output, blocks);
 }
 
-export function MarkdownReport({ markdown, images = {}, normalize = false }: Props) {
+export function MarkdownReport({
+  markdown,
+  images = {},
+  normalize = false,
+}: Props) {
   const [displayMarkdown, setDisplayMarkdown] = useState(markdown || "");
 
   useEffect(() => {
@@ -124,6 +134,7 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
 
       try {
         const normalized = await normalizeReportMarkdown(markdown || "");
+
         if (!cancelled) {
           setDisplayMarkdown(renderMathInMarkdown(normalized || markdown || ""));
         }
@@ -150,7 +161,9 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
           return <span>{`![${alt || ""}](${src || ""})`}</span>;
         }
 
-        const dataSrc = b64.startsWith("data:") ? b64 : `data:image/png;base64,${b64}`;
+        const dataSrc = b64.startsWith("data:")
+          ? b64
+          : `data:image/png;base64,${b64}`;
 
         return (
           <figure className="figure">
@@ -159,33 +172,13 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
             {alt ? <figcaption>{alt}</figcaption> : null}
           </figure>
         );
-      }
+      },
     }),
     [images]
   );
 
   return (
     <div className="report-markdown">
-      <div
-        style={{
-          padding: "8px 12px",
-          marginBottom: 12,
-          background: "#fff7ed",
-          border: "1px solid #fed7aa",
-          borderRadius: 8,
-        }}
-      >
-        <div>KaTeX 测试：</div>
-        <div
-          dangerouslySetInnerHTML={{
-            __html: katex.renderToString("a^2 + b^2 = c^2", {
-              displayMode: false,
-              throwOnError: false,
-            }),
-          }}
-        />
-      </div>
-  
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
