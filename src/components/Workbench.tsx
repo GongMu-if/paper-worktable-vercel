@@ -295,6 +295,12 @@ function AnalysisReportView({ analysisResult, sourceName, cacheKey, statusText =
   statusText?: string;
 }) {
   const reportMd = analysisResult.main_report || "";
+
+  console.log("report image keys:", Object.keys(analysisResult.images || {}));
+  console.log(
+    "markdown image refs:",
+    Array.from(reportMd.matchAll(/!\[[^\]]*]\(([^)]+)\)/g)).map((m) => m[1])
+  );
   return (
     <div className="stack">
       <div className="notice success">{statusText}</div>
