@@ -166,6 +166,26 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
 
   return (
     <div className="report-markdown">
+      <div
+        style={{
+          padding: "8px 12px",
+          marginBottom: 12,
+          background: "#fff7ed",
+          border: "1px solid #fed7aa",
+          borderRadius: 8,
+        }}
+      >
+        <div>KaTeX 测试：</div>
+        <div
+          dangerouslySetInnerHTML={{
+            __html: katex.renderToString("a^2 + b^2 = c^2", {
+              displayMode: false,
+              throwOnError: false,
+            }),
+          }}
+        />
+      </div>
+  
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
