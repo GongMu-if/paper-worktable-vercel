@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import katex from "katex";
 import { normalizeReportMarkdown } from "@/lib/api";
 
 type ImageValue =
@@ -32,6 +31,31 @@ type Props = {
   images?: Record<string, ImageValue>;
   normalize?: boolean;
 };
+
+function escapeHtml(value: string): string {
+  return (value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderKatex(tex: string, displayMode: boolean): string {
+  const cleaned = repairLatexExpression(tex || "");
+  if (!cleaned) return "";
+
+  try {
+    return katex.renderToString(cleaned, {
+      displayMode,
+      throwOnError: false,
+      strict: false,
+      trust: false,
+    });
+  } catch {
+    const delimiter = displayMode ? "$$" : "$";
+    return `${delimiter}${escapeHtml(cleaned)}${delimiter}`;
+  }
+}
 
 function normalizeImageKey(value: string | undefined): string {
   return decodeURIComponent(value || "")
@@ -111,9 +135,7 @@ function findImageSrc(
   alt: string | undefined,
   images: Record<string, ImageValue>
 ): string | null {
-  const candidates = [src, alt]
-    .map(normalizeImageKey)
-    .filter(Boolean);
+  const candidates = [src, alt].map(normalizeImageKey).filter(Boolean);
 
   for (const candidate of candidates) {
     for (const [name, value] of Object.entries(images || {})) {
@@ -173,24 +195,9 @@ function restoreCodeBlocks(value: string, blocks: string[]): string {
 function repairLatexExpression(expr: string): string {
   return (expr || "")
     .trim()
-    // 修复模型常见错误：\fracTP{TP + FN} -> \frac{TP}{TP + FN}
     .replace(/\\frac\s*([A-Za-z0-9]+)\s*\{/g, "\\frac{$1}{")
-    // 修复 \fracTP TP 这种极端情况
-    .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}");
-}
-
-function looksLikeStandaloneLatex(line: string): boolean {
-  const value = line.trim();
-
-  if (!value) return false;
-  if (value.startsWith("#")) return false;
-  if (value.startsWith("|")) return false;
-  if (/^[-*+]\s+/.test(value)) return false;
-  if (/^\d+[.)、]\s+/.test(value)) return false;
-  if (value.startsWith(">")) return false;
-  if (value.includes("$")) return false;
-
-  return /\\(frac|mathrm|text|sum|prod|sqrt|alpha|beta|gamma|delta|lambda|mu|sigma|cdot|times|leq|geq|infty)\b/.test(value);
+    .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
+    .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
 }
 
 function repairReportMarkdown(value: string): string {
@@ -202,57 +209,48 @@ function repairReportMarkdown(value: string): string {
     .replace(/\\\$/g, "$")
     .replace(/\\\(/g, "$")
     .replace(/\\\)/g, "$")
-    .replace(/\\\[/g, "\n\n$$\n")
-    .replace(/\\\]/g, "\n$$\n\n");
+    .replace(/\\\[/g, "$$")
+    .replace(/\\\]/g, "$$");
 
-  const lines = repaired.split("\n");
-  const output: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    // 很多报告会出现：\mathrm{F1...}=... $$ 其中，
-    // 这里把 $$ 前面的裸公式包成 display math，把后面的中文恢复成正文。
-    if (looksLikeStandaloneLatex(trimmed) && trimmed.includes("$$")) {
-      const [formulaPart, ...restParts] = trimmed.split("$$");
-      const restText = restParts.join("$$").trim();
-
-      output.push("");
-      output.push("$$");
-      output.push(repairLatexExpression(formulaPart));
-      output.push("$$");
-      output.push("");
-
-      if (restText) output.push(restText);
-      continue;
-    }
-
-    if (looksLikeStandaloneLatex(trimmed)) {
-      output.push("");
-      output.push("$$");
-      output.push(repairLatexExpression(trimmed));
-      output.push("$$");
-      output.push("");
-      continue;
-    }
-
-    // 避免普通正文被 4 空格缩进误识别为代码块。
-    if (/^( {4,}|\t)([\u4e00-\u9fa5A-Za-z0-9（(【\[])/.test(line)) {
-      output.push(line.replace(/^( {4,}|\t)+/, ""));
-      continue;
-    }
-
-    output.push(line);
-  }
-
-  repaired = output.join("\n");
-
-  // 修复 display math 的空白格式。
+  // 防止模型输出的 4 空格缩进把公式/正文变成代码块
   repaired = repaired
-    .replace(/\$\$\s*([^\n$][\s\S]*?)\s*\$\$/g, (_, expr: string) => {
-      return `\n\n$$\n${repairLatexExpression(expr)}\n$$\n\n`;
+    .split("\n")
+    .map((line) => {
+      if (/^( {4,}|\t)([\u4e00-\u9fa5A-Za-z0-9\\$#（(【\[])/.test(line)) {
+        return line.replace(/^( {4,}|\t)+/, "");
+      }
+      return line;
     })
-    .replace(/\n{3,}/g, "\n\n");
+    .join("\n");
+
+  // 块级公式：$$ ... $$
+  repaired = repaired.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr: string) => {
+    return `\n\n<div class="math-display">${renderKatex(expr, true)}</div>\n\n`;
+  });
+
+  // 裸 LaTeX 行，例如：\mathrm{Recall} = ...
+  repaired = repaired
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+
+      if (
+        trimmed &&
+        !trimmed.includes("<span") &&
+        !trimmed.includes("<div") &&
+        /^\\(mathrm|frac|text|sqrt|sum|prod|alpha|beta|gamma|delta|lambda|mu|sigma|cdot|times|leq|geq)/.test(trimmed)
+      ) {
+        return `<div class="math-display">${renderKatex(trimmed, true)}</div>`;
+      }
+
+      return line;
+    })
+    .join("\n");
+
+  // 行内公式
+  repaired = repaired.replace(/(^|[^\\])\$([^\n$]+?)\$/g, (_, prefix: string, expr: string) => {
+    return `${prefix}<span class="math-inline">${renderKatex(expr, false)}</span>`;
+  });
 
   return restoreCodeBlocks(repaired, blocks);
 }
@@ -334,8 +332,8 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
   return (
     <div className="report-markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeRaw, rehypeKatex]}
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
         components={components as never}
         skipHtml={false}
       >
