@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
-import katex from "katex";
 import { normalizeReportMarkdown } from "@/lib/api";
 
 type ImageValue =
@@ -31,58 +32,6 @@ type Props = {
   images?: Record<string, ImageValue>;
   normalize?: boolean;
 };
-
-function escapeHtml(value: string): string {
-  return (value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function stripHtml(value: string): string {
-  return (value || "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"');
-}
-
-function repairLatexExpression(expr: string): string {
-  return (expr || "")
-    .trim()
-    // \fracTP{TP + FP} -> \frac{TP}{TP + FP}
-    .replace(/\\frac\s*([A-Za-z0-9]+)\s*\{/g, "\\frac{$1}{")
-    // \fracTP TP -> \frac{TP}{TP}
-    .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
-    .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
-}
-
-function renderKatex(tex: string, displayMode: boolean): string {
-  const cleaned = repairLatexExpression(tex || "");
-  if (!cleaned) return "";
-
-  try {
-    return katex.renderToString(cleaned, {
-      displayMode,
-      throwOnError: false,
-      strict: false,
-      trust: false,
-    });
-  } catch {
-    const delimiter = displayMode ? "$$" : "$";
-    return `${delimiter}${escapeHtml(cleaned)}${delimiter}`;
-  }
-}
-
-function renderCaptionHtml(value: string): string {
-  const escaped = escapeHtml(value || "");
-  return escaped.replace(/(^|[^\\])\$([^\n$]+?)\$/g, (_, prefix: string, expr: string) => {
-    return `${prefix}<span class="math-inline">${renderKatex(expr, false)}</span>`;
-  });
-}
 
 function safeDecodeURIComponent(value: string): string {
   try {
@@ -111,6 +60,7 @@ function looksLikeBase64Image(value: string): boolean {
 
   if (!text) return false;
   if (text.startsWith("data:image/")) return true;
+
   if (text.startsWith("iVBORw0KGgo")) return true; // PNG
   if (text.startsWith("/9j/")) return true; // JPEG
   if (text.startsWith("R0lGOD")) return true; // GIF
@@ -124,10 +74,19 @@ function inferMimeFromBase64OrName(value: string, name?: string): string {
   const text = normalizeBase64(value || "");
   const lowerName = (name || "").toLowerCase();
 
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
-  if (lowerName.endsWith(".webp")) return "image/webp";
-  if (lowerName.endsWith(".gif")) return "image/gif";
-  if (lowerName.endsWith(".svg")) return "image/svg+xml";
+  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+  if (lowerName.endsWith(".webp")) {
+    return "image/webp";
+  }
+  if (lowerName.endsWith(".gif")) {
+    return "image/gif";
+  }
+  if (lowerName.endsWith(".svg")) {
+    return "image/svg+xml";
+  }
+
   if (text.startsWith("/9j/")) return "image/jpeg";
   if (text.startsWith("R0lGOD")) return "image/gif";
   if (text.startsWith("UklGR")) return "image/webp";
@@ -144,9 +103,12 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
     if (!text) return null;
 
     if (text.startsWith("data:image/")) return text;
-    if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("blob:")) return text;
+    if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("blob:")) {
+      return text;
+    }
 
-    // JPEG base64 常以 /9j/ 开头，所以必须先判断裸 base64，再判断站内路径。
+    // 注意：必须先判断 base64，再判断 "/"。
+    // JPEG base64 常以 /9j/ 开头。
     if (looksLikeBase64Image(text)) {
       const clean = normalizeBase64(text);
       const mime = inferMimeFromBase64OrName(clean, fallbackName);
@@ -154,6 +116,7 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
     }
 
     if (text.startsWith("/")) return text;
+
     return null;
   }
 
@@ -176,6 +139,7 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
     };
 
     const objectName = item.filename || item.name || fallbackName;
+
     const direct = item.url || item.src || item.path;
     if (direct) {
       const directSrc = toImageSrc(direct, objectName);
@@ -219,9 +183,16 @@ function findImageSrc(
   for (const candidate of candidates) {
     for (const [name, value] of Object.entries(images || {})) {
       const key = normalizeImageKey(name);
+
       const valueName =
         typeof value === "object" && value
-          ? normalizeImageKey(value.filename || value.name || value.path || value.src || value.url)
+          ? normalizeImageKey(
+              value.filename ||
+                value.name ||
+                value.path ||
+                value.src ||
+                value.url
+            )
           : "";
 
       const matched =
@@ -233,24 +204,33 @@ function findImageSrc(
             valueName.endsWith(candidate) ||
             candidate.endsWith(valueName)));
 
-      if (matched) return toImageSrc(value, src || alt || name);
+      if (matched) {
+        return toImageSrc(value, src || alt || name);
+      }
     }
   }
 
   return null;
 }
 
-function protectCodeBlocks(value: string): { text: string; blocks: string[] } {
+function protectBlocks(value: string): { text: string; blocks: string[] } {
   const blocks: string[] = [];
 
   let text = (value || "").replace(/```[\s\S]*?```/g, (match) => {
-    const key = `@@CODE_BLOCK_${blocks.length}@@`;
+    const key = `@@PROTECTED_BLOCK_${blocks.length}@@`;
+    blocks.push(match);
+    return key;
+  });
+
+  // 保护图片语法，避免图片 alt 里的 $...$ 被预处理破坏。
+  text = text.replace(/!\[[\s\S]*?]\([^)]+\)/g, (match) => {
+    const key = `@@PROTECTED_BLOCK_${blocks.length}@@`;
     blocks.push(match);
     return key;
   });
 
   text = text.replace(/`[^`\n]+`/g, (match) => {
-    const key = `@@CODE_BLOCK_${blocks.length}@@`;
+    const key = `@@PROTECTED_BLOCK_${blocks.length}@@`;
     blocks.push(match);
     return key;
   });
@@ -258,89 +238,54 @@ function protectCodeBlocks(value: string): { text: string; blocks: string[] } {
   return { text, blocks };
 }
 
-function restoreCodeBlocks(value: string, blocks: string[]): string {
+function restoreBlocks(value: string, blocks: string[]): string {
   let result = value || "";
+
   blocks.forEach((block, index) => {
-    result = result.replace(`@@CODE_BLOCK_${index}@@`, block);
+    result = result.replace(`@@PROTECTED_BLOCK_${index}@@`, block);
   });
+
   return result;
 }
 
-function protectMarkdownImages(value: string): { text: string; images: string[] } {
-  const images: string[] = [];
-  const text = (value || "").replace(/!\[[^\]\n]*\]\([^\n)]+\)/g, (match) => {
-    const key = `@@MARKDOWN_IMAGE_${images.length}@@`;
-    images.push(match);
-    return key;
-  });
-  return { text, images };
-}
+function looksLikeStandaloneLatex(line: string): boolean {
+  const value = line.trim();
 
-function restoreMarkdownImages(value: string, images: string[]): string {
-  let result = value || "";
-  images.forEach((image, index) => {
-    result = result.replace(`@@MARKDOWN_IMAGE_${index}@@`, image);
-  });
-  return result;
-}
+  if (!value) return false;
+  if (value.startsWith("#")) return false;
+  if (value.startsWith("|")) return false;
+  if (value.startsWith(">")) return false;
+  if (/^[-*+]\s+/.test(value)) return false;
+  if (/^\d+[.)、]\s+/.test(value)) return false;
+  if (value.includes("$")) return false;
 
-function lineLooksLikeLatex(value: string): boolean {
-  const trimmed = (value || "").trim();
-  if (!trimmed) return false;
-  if (trimmed.includes("<span") || trimmed.includes("<div")) return false;
-  if (/^#{1,6}\s/.test(trimmed)) return false;
-  if (/^[-*+]\s+/.test(trimmed)) return false;
-  if (/^\|/.test(trimmed)) return false;
-
-  const commandCount = (trimmed.match(/\\[a-zA-Z]+/g) || []).length;
-  const subscriptCount = (trimmed.match(/[_^]\{/g) || []).length;
-  const hasEquation = /=|\\frac|\\partial|\\sum|\\prod|\\left|\\right/.test(trimmed);
-
-  return hasEquation && commandCount + subscriptCount >= 2;
-}
-
-function splitMixedLatexLine(line: string): string | null {
-  const value = line || "";
-  if (!/[\u4e00-\u9fa5]/.test(value)) return null;
-
-  const candidates = [
-    value.search(/\s=\s*(?:\\|[A-Za-z]_[{A-Za-z0-9])/),
-    value.search(/\\(?:frac|partial|sum|prod|left|right|mu|nu|sigma|varepsilon|mathcal|mathrm|text)\b/),
-  ].filter((idx) => idx >= 0);
-
-  if (!candidates.length) return null;
-  const splitIndex = Math.min(...candidates);
-  if (splitIndex <= 0) return null;
-
-  const prefix = value.slice(0, splitIndex).trimEnd();
-  const formula = value.slice(splitIndex).trim();
-  if (!prefix || !lineLooksLikeLatex(formula)) return null;
-
-  return `${prefix}\n\n<div class="math-display">${renderKatex(formula, true)}</div>`;
+  return /\\(frac|partial|mathrm|mathcal|tilde|sigma|varepsilon|mu|nu|Theta|cdot|sqrt|sum|prod|left|right)\b/.test(value);
 }
 
 function repairReportMarkdown(value: string): string {
-  const { text: codeProtectedText, blocks } = protectCodeBlocks(value || "");
-  const { text: imageProtectedText, images } = protectMarkdownImages(codeProtectedText);
+  const { text, blocks } = protectBlocks(value || "");
 
-  let repaired = imageProtectedText
+  let repaired = text
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .replace(/\\\$/g, "$")
     .replace(/\\\(/g, "$")
     .replace(/\\\)/g, "$")
-    .replace(/\\\[/g, "$$")
-    .replace(/\\\]/g, "$$");
+    .replace(/\\\[/g, "\n\n$$\n")
+    .replace(/\\\]/g, "\n$$\n\n");
 
-  // 修复历史报告中常见的嵌套美元符号：$k_i^* ($i \in N$) -> $k_i^*$（$i \in N$）
+  // 修复历史报告中常见的嵌套美元符号：
+  // $k_i^* ($i \in \mathbb{N}^+$) -> $k_i^*$（$i \in \mathbb{N}^+$）
   repaired = repaired.replace(
     /\$([^$\n]+?)\s*\(\$([^$\n]+?)\$\)/g,
-    (_, before: string, inside: string) => `$${before.trim()}$（$${inside.trim()}$）`
+    (_, before: string, inside: string) => {
+      return `$${before.trim()}$（$${inside.trim()}$）`;
+    }
   );
 
   repaired = repaired.replace(/（\*）/g, "（\\*）");
 
-  // 防止模型输出的 4 空格缩进把公式/正文变成代码块。
+  // 防止 4 空格缩进把正文或公式变成代码块。
   repaired = repaired
     .split("\n")
     .map((line) => {
@@ -351,43 +296,48 @@ function repairReportMarkdown(value: string): string {
     })
     .join("\n");
 
-  // 块级公式：$$ ... $$
-  repaired = repaired.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr: string) => {
-    return `\n\n<div class="math-display">${renderKatex(expr, true)}</div>\n\n`;
-  });
-
-  // 裸 LaTeX 行和“中文解释 + 大段裸公式”的行。
+  // 只把“整行裸 LaTeX”包成块级公式。
+  // 不再处理“中文 + 公式混在一行”的情况，避免把中文吞进 KaTeX。
   repaired = repaired
     .split("\n")
     .map((line) => {
       const trimmed = line.trim();
-      const mixed = splitMixedLatexLine(line);
-      if (mixed) return mixed;
 
-      if (lineLooksLikeLatex(trimmed) && !/[\u4e00-\u9fa5]/.test(trimmed)) {
-        return `<div class="math-display">${renderKatex(trimmed, true)}</div>`;
-      }
-
-      if (
-        trimmed &&
-        !trimmed.includes("<span") &&
-        !trimmed.includes("<div") &&
-        /^\\(mathrm|frac|text|sqrt|sum|prod|alpha|beta|gamma|delta|lambda|mu|nu|sigma|varepsilon|cdot|times|leq|geq|partial|mathcal)/.test(trimmed)
-      ) {
-        return `<div class="math-display">${renderKatex(trimmed, true)}</div>`;
+      if (looksLikeStandaloneLatex(trimmed)) {
+        return `\n$$\n${trimmed}\n$$\n`;
       }
 
       return line;
     })
     .join("\n");
 
-  // 行内公式。图片语法已保护，因此图片 alt 中的 $...$ 不会在这里变成 HTML。
-  repaired = repaired.replace(/(^|[^\\])\$([^\n$]+?)\$/g, (_, prefix: string, expr: string) => {
-    return `${prefix}<span class="math-inline">${renderKatex(expr, false)}</span>`;
-  });
+  repaired = repaired.replace(/\n{3,}/g, "\n\n");
 
-  repaired = restoreMarkdownImages(repaired, images);
-  return restoreCodeBlocks(repaired, blocks);
+  return restoreBlocks(repaired, blocks);
+}
+
+function stripMarkdownImageCaption(value: string): string {
+  return (value || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\$/g, "")
+    .replace(/\\[a-zA-Z]+/g, "")
+    .replace(/[{}]/g, "")
+    .trim();
+}
+
+function CaptionMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
+      rehypePlugins={[rehypeRaw, rehypeKatex]}
+      components={{
+        p: ({ children }) => <>{children}</>,
+      }}
+      skipHtml={false}
+    >
+      {text || ""}
+    </ReactMarkdown>
+  );
 }
 
 export function MarkdownReport({ markdown, images = {}, normalize = false }: Props) {
@@ -404,9 +354,13 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
 
       try {
         const normalized = await normalizeReportMarkdown(markdown || "");
-        if (!cancelled) setNormalizedMarkdown(normalized || markdown || "");
+        if (!cancelled) {
+          setNormalizedMarkdown(normalized || markdown || "");
+        }
       } catch {
-        if (!cancelled) setNormalizedMarkdown(markdown || "");
+        if (!cancelled) {
+          setNormalizedMarkdown(markdown || "");
+        }
       }
     }
 
@@ -426,26 +380,27 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
     () => ({
       img: ({ src, alt }: { src?: string; alt?: string }) => {
         const finalSrc = findImageSrc(src, alt, images);
-        const safeAlt = stripHtml(alt || "report image");
 
         if (!finalSrc) {
           return (
             <figure className="figure figure-missing">
               <div className="image-missing">
-                图片未找到：{safeAlt || src || "未命名图片"}
+                图片未找到：{alt || src || "未命名图片"}
               </div>
             </figure>
           );
         }
 
+        const safeAlt = stripMarkdownImageCaption(alt || "report image");
+
         return (
           <figure className="figure">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={finalSrc} alt={safeAlt} loading="lazy" />
+            <img src={finalSrc} alt={safeAlt || "report image"} loading="lazy" />
             {alt ? (
-              <figcaption
-                dangerouslySetInnerHTML={{ __html: renderCaptionHtml(alt) }}
-              />
+              <figcaption>
+                <CaptionMarkdown text={alt} />
+              </figcaption>
             ) : null}
           </figure>
         );
@@ -457,8 +412,8 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
   return (
     <div className="report-markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
+        rehypePlugins={[rehypeRaw, rehypeKatex]}
         components={components as never}
         skipHtml={false}
       >
