@@ -77,12 +77,15 @@ function inferMimeFromBase64OrName(value: string, name?: string): string {
   if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
     return "image/jpeg";
   }
+
   if (lowerName.endsWith(".webp")) {
     return "image/webp";
   }
+
   if (lowerName.endsWith(".gif")) {
     return "image/gif";
   }
+
   if (lowerName.endsWith(".svg")) {
     return "image/svg+xml";
   }
@@ -103,12 +106,17 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
     if (!text) return null;
 
     if (text.startsWith("data:image/")) return text;
-    if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("blob:")) {
+
+    if (
+      text.startsWith("http://") ||
+      text.startsWith("https://") ||
+      text.startsWith("blob:")
+    ) {
       return text;
     }
 
     // 注意：必须先判断 base64，再判断 "/"。
-    // JPEG base64 常以 /9j/ 开头。
+    // JPEG base64 常以 /9j/ 开头，如果先判断 "/" 会被误当成站内路径。
     if (looksLikeBase64Image(text)) {
       const clean = normalizeBase64(text);
       const mime = inferMimeFromBase64OrName(clean, fallbackName);
@@ -259,7 +267,94 @@ function looksLikeStandaloneLatex(line: string): boolean {
   if (/^\d+[.)、]\s+/.test(value)) return false;
   if (value.includes("$")) return false;
 
-  return /\\(frac|partial|mathrm|mathcal|tilde|sigma|varepsilon|mu|nu|Theta|cdot|sqrt|sum|prod|left|right)\b/.test(value);
+  return /\\(frac|partial|mathrm|mathcal|tilde|sigma|varepsilon|mu|nu|Theta|cdot|sqrt|sum|prod|left|right)\b/.test(
+    value
+  );
+}
+
+function isDisplayWorthyTex(tex: string): boolean {
+  const value = (tex || "").trim();
+
+  if (!value) return false;
+
+  // 短变量不要提升，例如 $t$、$C_{TC}^*$、$\mu_{TC}$
+  if (value.length < 28) return false;
+
+  // 明显是方程、偏导、分式、损失函数、长表达式的公式才提升
+  return (
+    value.includes("=") ||
+    value.includes("\\frac") ||
+    value.includes("\\partial") ||
+    value.includes("\\mathcal") ||
+    value.includes("\\sum") ||
+    value.includes("\\prod") ||
+    value.includes("\\int") ||
+    value.includes("\\left") ||
+    value.includes("\\right")
+  );
+}
+
+function promoteLongInlineMathToDisplay(markdownText: string): string {
+  return (markdownText || "")
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+
+      if (
+        !trimmed ||
+        trimmed === "$$" ||
+        trimmed.startsWith("#") ||
+        trimmed.startsWith("|") ||
+        trimmed.startsWith("@@PROTECTED_BLOCK_") ||
+        trimmed.includes("<div") ||
+        trimmed.includes("<span")
+      ) {
+        return line;
+      }
+
+      const inlineMathRe = /(^|[^\\])\$([^$\n]+?)\$/g;
+      const parts: string[] = [];
+      let lastIndex = 0;
+      let changed = false;
+      let match: RegExpExecArray | null;
+
+      while ((match = inlineMathRe.exec(line)) !== null) {
+        const prefix = match[1] || "";
+        const tex = match[2] || "";
+        const matchStart = match.index + prefix.length;
+        const matchEnd = inlineMathRe.lastIndex;
+
+        if (!isDisplayWorthyTex(tex)) {
+          continue;
+        }
+
+        const before = line.slice(lastIndex, matchStart).trim();
+        if (before) {
+          parts.push(before);
+        }
+
+        parts.push("");
+        parts.push("$$");
+        parts.push(tex.trim());
+        parts.push("$$");
+        parts.push("");
+
+        lastIndex = matchEnd;
+        changed = true;
+      }
+
+      if (!changed) {
+        return line;
+      }
+
+      const after = line.slice(lastIndex).trim();
+      if (after) {
+        parts.push(after);
+      }
+
+      return parts.join("\n");
+    })
+    .join("\n");
 }
 
 function repairReportMarkdown(value: string): string {
@@ -273,6 +368,26 @@ function repairReportMarkdown(value: string): string {
     .replace(/\\\)/g, "$")
     .replace(/\\\[/g, "\n\n$$\n")
     .replace(/\\\]/g, "\n$$\n\n");
+
+  // 把同一行里的 $$ ... $$ 统一改成标准块级公式。
+  // 例如：正文： $$ a=b $$ 其中...
+  // 会变成：
+  // 正文：
+  //
+  // $$
+  // a=b
+  // $$
+  //
+  // 其中...
+  repaired = repaired.replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
+    const cleaned = String(expr || "").trim();
+
+    if (!cleaned) {
+      return "";
+    }
+
+    return `\n\n$$\n${cleaned}\n$$\n\n`;
+  });
 
   // 修复历史报告中常见的嵌套美元符号：
   // $k_i^* ($i \in \mathbb{N}^+$) -> $k_i^*$（$i \in \mathbb{N}^+$）
@@ -297,7 +412,7 @@ function repairReportMarkdown(value: string): string {
     .join("\n");
 
   // 只把“整行裸 LaTeX”包成块级公式。
-  // 不再处理“中文 + 公式混在一行”的情况，避免把中文吞进 KaTeX。
+  // 不处理“中文 + 公式混在一行”的情况，避免把中文吞进 KaTeX。
   repaired = repaired
     .split("\n")
     .map((line) => {
@@ -310,6 +425,10 @@ function repairReportMarkdown(value: string): string {
       return line;
     })
     .join("\n");
+
+  // 把复杂长行内公式自动提升成块级公式。
+  // 例如：PINN被定义为 $f_{TC}^p = ...$。其中...
+  repaired = promoteLongInlineMathToDisplay(repaired);
 
   repaired = repaired.replace(/\n{3,}/g, "\n\n");
 
@@ -340,7 +459,11 @@ function CaptionMarkdown({ text }: { text: string }) {
   );
 }
 
-export function MarkdownReport({ markdown, images = {}, normalize = false }: Props) {
+export function MarkdownReport({
+  markdown,
+  images = {},
+  normalize = false,
+}: Props) {
   const [normalizedMarkdown, setNormalizedMarkdown] = useState(markdown || "");
 
   useEffect(() => {
