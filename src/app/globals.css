@@ -585,3 +585,33 @@ body {
 .report-markdown img {
   background: #fff;
 }
+.report-markdown .math-display {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 1rem 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.report-markdown .math-inline {
+  display: inline;
+}
+
+.report-markdown .katex-display {
+  margin: 0;
+}
+
+.report-markdown .math-fallback {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  white-space: normal;
+  word-break: break-word;
+  color: inherit;
+}
+
+.report-markdown .math-fallback-display {
+  display: block;
+  text-align: center;
+}
