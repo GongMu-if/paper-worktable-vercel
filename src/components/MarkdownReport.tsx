@@ -65,6 +65,34 @@ function renderKatex(tex: string, displayMode: boolean): string {
   }
 }
 
+function stripHtml(value: string): string {
+  return (value || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function renderInlineMathCaption(value: string): string {
+  const caption = value || "";
+  if (!caption) return "";
+
+  // repairReportMarkdown 会先把图片 alt 里的 $...$ 转成 KaTeX HTML；
+  // 这里如果已经是 KaTeX/HTML，直接交给 figcaption 渲染，避免显示成源码。
+  if (/<span\b|<math\b|class=["'](?:math-inline|katex)/i.test(caption)) {
+    return caption;
+  }
+
+  const escaped = escapeHtml(caption);
+  return escaped.replace(/(^|[^\\])\$([^\n$]+?)\$/g, (_, prefix: string, expr: string) => {
+    return `${prefix}<span class="math-inline">${renderKatex(expr, false)}</span>`;
+  });
+}
+
 function safeDecodeURIComponent(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -419,11 +447,16 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
           );
         }
 
+        const captionHtml = alt ? renderInlineMathCaption(alt) : "";
+        const plainAlt = stripHtml(alt || "report image");
+
         return (
           <figure className="figure">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={finalSrc} alt={alt || "report image"} loading="lazy" />
-            {alt ? <figcaption>{alt}</figcaption> : null}
+            <img src={finalSrc} alt={plainAlt || "report image"} loading="lazy" />
+            {captionHtml ? (
+              <figcaption dangerouslySetInnerHTML={{ __html: captionHtml }} />
+            ) : null}
           </figure>
         );
       },
