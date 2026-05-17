@@ -93,21 +93,19 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
     const text = value.trim();
     if (!text) return null;
 
-    if (text.startsWith("data:image/")) return text;
-    if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("blob:")) {
+    if (
+      text.startsWith("data:") ||
+      text.startsWith("http://") ||
+      text.startsWith("https://") ||
+      text.startsWith("/") ||
+      text.startsWith("blob:")
+    ) {
       return text;
     }
 
-    if (text.startsWith("/")) return text;
-
-    // 这里必须保持宽松：后端 images_manifest 里经常直接存“裸 base64 字符串”。
-    // 上一版把它改成只有 looksLikeBase64Image(text) 才转换，导致部分图片值被判定为 null，
-    // Markdown 语法本身没问题，但前端拿不到 data:image/...，所以图片显示失败。
-    const clean = normalizeBase64(text);
-    if (!clean) return null;
-
-    const mime = inferMimeFromBase64OrName(clean, fallbackName);
-    return `data:${mime};base64,${clean}`;
+    // 恢复旧版行为：后端 images_manifest 里的字符串图片值就是裸 base64。
+    // 不要用 looksLikeBase64Image 严格判断，否则部分合法图片会被判定为 null。
+    return `data:${inferMimeFromBase64OrName(text, fallbackName)};base64,${text}`;
   }
 
   if (typeof value === "object") {
@@ -128,12 +126,16 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
       url?: string;
     };
 
-    const objectName = item.filename || item.name || fallbackName;
-
     const direct = item.url || item.src || item.path;
-    if (direct) {
-      const directSrc = toImageSrc(direct, objectName);
-      if (directSrc) return directSrc;
+    if (
+      direct &&
+      (direct.startsWith("data:") ||
+        direct.startsWith("http://") ||
+        direct.startsWith("https://") ||
+        direct.startsWith("/") ||
+        direct.startsWith("blob:"))
+    ) {
+      return direct;
     }
 
     const raw =
@@ -145,16 +147,15 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
       item.imageData;
 
     if (!raw) return null;
-    if (raw.startsWith("data:image/")) return raw;
+    if (raw.startsWith("data:")) return raw;
 
-    const clean = normalizeBase64(raw);
     const mime =
       item.mime ||
       item.mime_type ||
       item.content_type ||
-      inferMimeFromBase64OrName(clean, objectName);
+      inferMimeFromBase64OrName(raw, item.filename || item.name || fallbackName);
 
-    return `data:${mime};base64,${clean}`;
+    return `data:${mime};base64,${raw}`;
   }
 
   return null;
@@ -165,8 +166,18 @@ function findImageSrc(
   alt: string | undefined,
   images: Record<string, ImageValue>
 ): string | null {
-  const srcAsImage = toImageSrc(src, alt || src);
-  if (srcAsImage) return srcAsImage;
+  // src 通常只是 markdown 中的图片 key / 文件名，不能直接当成 base64 转 data URL。
+  // 必须先去 images_manifest 里按 key 找到对应的图片值，再转换。
+  if (
+    src &&
+    (src.startsWith("data:") ||
+      src.startsWith("http://") ||
+      src.startsWith("https://") ||
+      src.startsWith("/") ||
+      src.startsWith("blob:"))
+  ) {
+    return src;
+  }
 
   const candidates = [src, alt].map(normalizeImageKey).filter(Boolean);
 
