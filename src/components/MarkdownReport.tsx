@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
-import katex from "katex";
 import { normalizeReportMarkdown } from "@/lib/api";
 
 type ImageValue =
@@ -31,19 +32,6 @@ type Props = {
   images?: Record<string, ImageValue>;
   normalize?: boolean;
 };
-
-function escapeHtml(value: string): string {
-  return (value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function escapeMarkdownText(value: string): string {
-  // 只处理普通正文，避免 TC_p / IGF1R_I / Theta_TC 这类文本被 Markdown 当作斜体。
-  return escapeHtml(value).replace(/(?<!\\)_/g, "\\_");
-}
 
 function safeDecodeURIComponent(value: string): string {
   try {
@@ -72,11 +60,11 @@ function looksLikeBase64Image(value: string): boolean {
 
   if (!text) return false;
   if (text.startsWith("data:image/")) return true;
-  if (text.startsWith("iVBORw0KGgo")) return true; // PNG
-  if (text.startsWith("/9j/")) return true; // JPEG
-  if (text.startsWith("R0lGOD")) return true; // GIF
-  if (text.startsWith("UklGR")) return true; // WEBP
-  if (text.startsWith("PHN2Zy")) return true; // SVG base64
+  if (text.startsWith("iVBORw0KGgo")) return true;
+  if (text.startsWith("/9j/")) return true;
+  if (text.startsWith("R0lGOD")) return true;
+  if (text.startsWith("UklGR")) return true;
+  if (text.startsWith("PHN2Zy")) return true;
 
   return text.length > 500 && /^[A-Za-z0-9+/=]+$/.test(text);
 }
@@ -110,7 +98,6 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
       return text;
     }
 
-    // JPEG base64 常以 /9j/ 开头，所以必须先判断 base64，再判断 "/"。
     if (looksLikeBase64Image(text)) {
       const clean = normalizeBase64(text);
       const mime = inferMimeFromBase64OrName(clean, fallbackName);
@@ -215,53 +202,17 @@ function findImageSrc(
   return null;
 }
 
-function repairLatexExpression(expr: string): string {
-  let value = (expr || "").trim();
-
-  value = value
-    // \fracTP{TP + FN} -> \frac{TP}{TP + FN}
-    .replace(/\\frac\s*([A-Za-z0-9]+)\s*\{/g, "\\frac{$1}{")
-    // \fracTP TP -> \frac{TP}{TP}
-    .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
-    .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
-
-  // 修复以 ^p\mathcal{...} 开头的公式。KaTeX 需要给开头上标一个空基底。
-  value = value.replace(/(^|[\s([{,;:+\-*=])\^([A-Za-z0-9]+)(?=\\[A-Za-z])/g, "$1{}^{$2}");
-
-  return value;
-}
-
-function renderKatex(tex: string, displayMode: boolean): string {
-  const cleaned = repairLatexExpression(tex || "");
-  if (!cleaned) return "";
-
-  return katex.renderToString(cleaned, {
-    displayMode,
-    throwOnError: false,
-    strict: false,
-    trust: false,
-    errorColor: "#111827",
-  });
-}
-
-function protectBlocks(value: string): { text: string; blocks: string[] } {
+function protectCodeBlocks(value: string): { text: string; blocks: string[] } {
   const blocks: string[] = [];
 
   let text = (value || "").replace(/```[\s\S]*?```/g, (match) => {
-    const key = `@@PROTECTED_BLOCK_${blocks.length}@@`;
-    blocks.push(match);
-    return key;
-  });
-
-  // 保护图片语法，避免图片 alt 中的 $...$ 被正文公式预处理破坏。
-  text = text.replace(/!\[[\s\S]*?]\([^)]+\)/g, (match) => {
-    const key = `@@PROTECTED_BLOCK_${blocks.length}@@`;
+    const key = `@@MD_REPORT_CODE_BLOCK_${blocks.length}@@`;
     blocks.push(match);
     return key;
   });
 
   text = text.replace(/`[^`\n]+`/g, (match) => {
-    const key = `@@PROTECTED_BLOCK_${blocks.length}@@`;
+    const key = `@@MD_REPORT_CODE_BLOCK_${blocks.length}@@`;
     blocks.push(match);
     return key;
   });
@@ -269,210 +220,46 @@ function protectBlocks(value: string): { text: string; blocks: string[] } {
   return { text, blocks };
 }
 
-function restoreBlocks(value: string, blocks: string[]): string {
+function restoreCodeBlocks(value: string, blocks: string[]): string {
   let result = value || "";
 
   blocks.forEach((block, index) => {
-    result = result.replace(`@@PROTECTED_BLOCK_${index}@@`, block);
+    result = result.replace(`@@MD_REPORT_CODE_BLOCK_${index}@@`, block);
   });
 
   return result;
 }
 
-function standardizeBlockMath(markdownText: string): string {
-  // 只处理双美元公式。单美元行内公式永远不自动提升为块级，避免误把行内说明拆成单行公式。
-  return (markdownText || "").replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
-    const cleaned = String(expr || "").trim();
-
-    if (!cleaned) return "";
-
-    return `\n\n$$\n${cleaned}\n$$\n\n`;
-  });
+function stripLeakedInternalPlaceholders(value: string): string {
+  return (value || "")
+    .replace(/^\s*@@(?:REPORT\\?_)?PROTECTED\\?_BLOCK\\?_\d+@@\s*$/gm, "")
+    .replace(/@@(?:REPORT\\?_)?PROTECTED\\?_BLOCK\\?_\d+@@/g, "");
 }
 
-function looksLikeStandaloneLatex(line: string): boolean {
-  const value = line.trim();
+function normalizeDisplayMathBlocks(value: string): string {
+  const { text, blocks } = protectCodeBlocks(value || "");
 
-  if (!value) return false;
-  if (value.startsWith("#")) return false;
-  if (value.startsWith("|")) return false;
-  if (value.startsWith(">")) return false;
-  if (/^[-*+]\s+/.test(value)) return false;
-  if (/^\d+[.)、]\s+/.test(value)) return false;
-  if (value.includes("$")) return false;
-
-  // 只包裹整行裸 LaTeX；混有中文的行不处理，避免把中文吞进公式。
-  if (/[\u4e00-\u9fa5]/.test(value)) return false;
-
-  return /\\(frac|partial|mathrm|mathcal|tilde|sigma|varepsilon|mu|nu|Theta|cdot|sqrt|sum|prod|left|right)\b/.test(
-    value
-  );
-}
-
-function wrapStandaloneLatexLines(markdownText: string): string {
-  const lines = (markdownText || "").split("\n");
-  const output: string[] = [];
-  let inBlockMath = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (trimmed === "$$") {
-      inBlockMath = !inBlockMath;
-      output.push(line);
-      continue;
-    }
-
-    if (!inBlockMath && looksLikeStandaloneLatex(trimmed)) {
-      output.push("");
-      output.push("$$");
-      output.push(trimmed);
-      output.push("$$");
-      output.push("");
-      continue;
-    }
-
-    output.push(line);
-  }
-
-  return output.join("\n");
-}
-
-function renderBareLatexCommandsInTextSegment(text: string): string {
-  const pattern =
-    /\\(?:Theta|theta|sigma|Sigma|mu|nu|varepsilon|epsilon|mathcal|mathbb|mathrm|mathbf|tilde|widetilde|bar|hat|alpha|beta|gamma|delta|lambda|partial|nabla|cdot|times|infty)(?:\{[^{}\n]*\})?(?:_\{[^{}\n]+\}|_[A-Za-z0-9]+)?(?:\^\{[^{}\n]+\}|\^[A-Za-z0-9*]+)?/g;
-
-  let result = "";
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    const raw = match[0] || "";
-    if (!raw) continue;
-
-    result += escapeMarkdownText(text.slice(lastIndex, match.index));
-    result += `<span class="math-inline">${renderKatex(raw, false)}</span>`;
-    lastIndex = match.index + raw.length;
-  }
-
-  result += escapeMarkdownText(text.slice(lastIndex));
-  return result;
-}
-
-function renderInlineMathInText(text: string): string {
-  let result = "";
-  let index = 0;
-
-  while (index < text.length) {
-    const start = text.indexOf("$", index);
-
-    if (start < 0) {
-      result += renderBareLatexCommandsInTextSegment(text.slice(index));
-      break;
-    }
-
-    // 转义美元符号：\$ -> $
-    if (start > 0 && text[start - 1] === "\\") {
-      result += renderBareLatexCommandsInTextSegment(text.slice(index, start - 1)) + "$";
-      index = start + 1;
-      continue;
-    }
-
-    // 双美元不在这里处理。
-    if (text[start + 1] === "$") {
-      result += renderBareLatexCommandsInTextSegment(text.slice(index, start + 2));
-      index = start + 2;
-      continue;
-    }
-
-    const end = text.indexOf("$", start + 1);
-
-    if (end < 0) {
-      result += renderBareLatexCommandsInTextSegment(text.slice(index));
-      break;
-    }
-
-    const before = text.slice(index, start);
-    const tex = text.slice(start + 1, end);
-
-    result += renderBareLatexCommandsInTextSegment(before);
-    result += `<span class="math-inline">${renderKatex(tex, false)}</span>`;
-
-    index = end + 1;
-  }
-
-  return result;
-}
-
-function renderMathMarkdownToHtml(markdownText: string): string {
-  let text = markdownText || "";
-
-  // 先渲染块级公式。
-  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
-    const cleaned = String(expr || "").trim();
-
-    if (!cleaned) return "";
-
-    return `\n\n<div class="math-display">${renderKatex(cleaned, true)}</div>\n\n`;
-  });
-
-  // 再逐行渲染行内公式和裸露 LaTeX 命令，避免跨行把中文吞进去。
-  text = text
-    .split("\n")
-    .map((line) => {
-      // 块级公式已经变成 HTML，不再继续处理。
-      if (line.includes("math-display") || line.includes("katex")) {
-        return line;
-      }
-
-      return renderInlineMathInText(line);
-    })
-    .join("\n");
-
-  return text;
-}
-
-function repairReportMarkdown(value: string): string {
-  const { text, blocks } = protectBlocks(value || "");
-
-  let repaired = text
+  let normalized = text
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
-    .replace(/\\\$/g, "$")
-    .replace(/\\\(/g, "$")
-    .replace(/\\\)/g, "$")
     .replace(/\\\[/g, "\n\n$$\n")
     .replace(/\\\]/g, "\n$$\n\n");
 
-  // 修复历史报告中常见的嵌套美元符号：
-  // $k_i^* ($i \in \mathbb{N}^+$) -> $k_i^*$（$i \in \mathbb{N}^+$）
-  repaired = repaired.replace(
-    /\$([^$\n]+?)\s*\(\$([^$\n]+?)\$\)/g,
-    (_, before: string, inside: string) => {
-      return `$${before.trim()}$（$${inside.trim()}$）`;
-    }
-  );
+  normalized = normalized.replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
+    const cleaned = String(expr || "").trim();
+    if (!cleaned) return "";
+    return `\n\n$$\n${cleaned}\n$$\n\n`;
+  });
 
-  repaired = repaired.replace(/（\*）/g, "（\\*）");
+  normalized = normalized.replace(/\n{3,}/g, "\n\n");
+  return restoreCodeBlocks(normalized, blocks).trim();
+}
 
-  // 防止 4 空格缩进把正文或公式变成代码块。
-  repaired = repaired
-    .split("\n")
-    .map((line) => {
-      if (/^( {4,}|\t)([\u4e00-\u9fa5A-Za-z0-9\\$#（(【\[])/.test(line)) {
-        return line.replace(/^( {4,}|\t)+/, "");
-      }
-      return line;
-    })
-    .join("\n");
-
-  repaired = standardizeBlockMath(repaired);
-  repaired = wrapStandaloneLatexLines(repaired);
-  repaired = standardizeBlockMath(repaired);
-  repaired = renderMathMarkdownToHtml(repaired);
-  repaired = repaired.replace(/\n{3,}/g, "\n\n");
-
-  return restoreBlocks(repaired, blocks);
+function repairReportMarkdown(value: string): string {
+  let repaired = value || "";
+  repaired = stripLeakedInternalPlaceholders(repaired);
+  repaired = normalizeDisplayMathBlocks(repaired);
+  return repaired;
 }
 
 function stripMarkdownImageCaption(value: string): string {
@@ -484,17 +271,18 @@ function stripMarkdownImageCaption(value: string): string {
     .trim();
 }
 
-function renderCaptionHtml(text: string): string {
-  return renderInlineMathInText(text || "");
-}
-
-function CaptionHtml({ text }: { text: string }) {
+function CaptionMarkdown({ text }: { text: string }) {
   return (
-    <span
-      dangerouslySetInnerHTML={{
-        __html: renderCaptionHtml(text),
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
+      rehypePlugins={[rehypeRaw, rehypeKatex]}
+      components={{
+        p: ({ children }) => <>{children}</>,
       }}
-    />
+      skipHtml={false}
+    >
+      {text || ""}
+    </ReactMarkdown>
   );
 }
 
@@ -561,7 +349,7 @@ export function MarkdownReport({
             <img src={finalSrc} alt={safeAlt || "report image"} loading="lazy" />
             {alt ? (
               <figcaption>
-                <CaptionHtml text={alt} />
+                <CaptionMarkdown text={alt} />
               </figcaption>
             ) : null}
           </figure>
@@ -574,8 +362,8 @@ export function MarkdownReport({
   return (
     <div className="report-markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
+        rehypePlugins={[rehypeRaw, rehypeKatex]}
         components={components as never}
         skipHtml={false}
       >
