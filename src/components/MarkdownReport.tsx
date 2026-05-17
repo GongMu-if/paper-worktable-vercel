@@ -40,6 +40,11 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function escapeMarkdownText(value: string): string {
+  // 避免非公式文本里的下划线被 ReactMarkdown 当成斜体/强调。
+  return escapeHtml(value).replace(/_/g, "\\_");
+}
+
 function safeDecodeURIComponent(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -220,14 +225,8 @@ function repairLatexExpression(expr: string): string {
     .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
     .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
 
-  // 修复以左上标开头的常见论文公式写法：^p\mathcal{L} -> {}^{p}\mathcal{L}
-  // KaTeX 需要给开头的上标一个空基底，否则会按错误公式处理。
-  value = value.replace(/(^|[\s([{,;:=+\-])\^([A-Za-z0-9]+)(?=\\[A-Za-z])/g, "$1{}^{$2}");
-
-  // 把常见的多字符下标补成 {...}
-  // C_TC -> C_{TC}, \mu_TC -> \mu_{TC}
-  value = value.replace(/(\\[A-Za-z]+)_([A-Za-z]{2,})(?=[\s,;:+\-*/=)\]}]|$)/g, "$1_{$2}");
-  value = value.replace(/([A-Za-z])_([A-Za-z]{2,})(?=[\s,;:+\-*/=)\]}]|$)/g, "$1_{$2}");
+  // 修复以 ^p\mathcal{...} 开头的公式。KaTeX 需要给开头上标一个空基底。
+  value = value.replace(/(^|[\s([{,;:+\-*=])\^([A-Za-z0-9]+)(?=\\[A-Za-z])/g, "$1{}^{$2}");
 
   return value;
 }
@@ -245,7 +244,6 @@ function renderKatex(tex: string, displayMode: boolean): string {
       errorColor: "#111827",
     });
   } catch {
-    // 不显示红色报错，不把中文吞进去；渲染失败时只显示普通等宽文本。
     const className = displayMode ? "math-fallback math-fallback-display" : "math-fallback";
     return `<span class="${className}">${escapeHtml(cleaned)}</span>`;
   }
@@ -286,6 +284,17 @@ function restoreBlocks(value: string, blocks: string[]): string {
   return result;
 }
 
+function standardizeBlockMath(markdownText: string): string {
+  // 只处理双美元公式。单美元行内公式永远不自动提升为块级，避免误把行内说明拆成单行公式。
+  return (markdownText || "").replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
+    const cleaned = String(expr || "").trim();
+
+    if (!cleaned) return "";
+
+    return `\n\n$$\n${cleaned}\n$$\n\n`;
+  });
+}
+
 function looksLikeStandaloneLatex(line: string): boolean {
   const value = line.trim();
 
@@ -297,126 +306,12 @@ function looksLikeStandaloneLatex(line: string): boolean {
   if (/^\d+[.)、]\s+/.test(value)) return false;
   if (value.includes("$")) return false;
 
+  // 只包裹整行裸 LaTeX；混有中文的行不处理，避免把中文吞进公式。
+  if (/[\u4e00-\u9fa5]/.test(value)) return false;
+
   return /\\(frac|partial|mathrm|mathcal|tilde|sigma|varepsilon|mu|nu|Theta|cdot|sqrt|sum|prod|left|right)\b/.test(
     value
   );
-}
-
-function isDisplayWorthyTex(tex: string): boolean {
-  const value = (tex || "").trim();
-
-  if (!value) return false;
-
-  // 短变量不要提升，例如 $t$、$C_{TC}^*$、$\mu_{TC}$
-  if (value.length < 28) return false;
-
-  return (
-    value.includes("=") ||
-    value.includes("\\frac") ||
-    value.includes("\\partial") ||
-    value.includes("\\mathcal") ||
-    value.includes("\\sum") ||
-    value.includes("\\prod") ||
-    value.includes("\\int") ||
-    value.includes("\\left") ||
-    value.includes("\\right")
-  );
-}
-
-function standardizeBlockMath(markdownText: string): string {
-  // 把同一行里的 $$ ... $$ 统一变成标准块级公式：
-  // 正文 $$ a=b $$ 后文
-  // ->
-  // 正文
-  //
-  // $$
-  // a=b
-  // $$
-  //
-  // 后文
-  return (markdownText || "").replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
-    const cleaned = String(expr || "").trim();
-
-    if (!cleaned) return "";
-
-    return `\n\n$$\n${cleaned}\n$$\n\n`;
-  });
-}
-
-function promoteLongInlineMathToDisplay(markdownText: string): string {
-  const lines = (markdownText || "").split("\n");
-  const output: string[] = [];
-  let inBlockMath = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (trimmed === "$$") {
-      inBlockMath = !inBlockMath;
-      output.push(line);
-      continue;
-    }
-
-    if (inBlockMath) {
-      output.push(line);
-      continue;
-    }
-
-    if (
-      !trimmed ||
-      trimmed.startsWith("#") ||
-      trimmed.startsWith("|") ||
-      trimmed.startsWith("@@PROTECTED_BLOCK_")
-    ) {
-      output.push(line);
-      continue;
-    }
-
-    const inlineMathRe = /(^|[^\\])\$([^$\n]+?)\$/g;
-    const parts: string[] = [];
-    let lastIndex = 0;
-    let changed = false;
-    let match: RegExpExecArray | null;
-
-    while ((match = inlineMathRe.exec(line)) !== null) {
-      const prefix = match[1] || "";
-      const tex = match[2] || "";
-      const matchStart = match.index + prefix.length;
-      const matchEnd = inlineMathRe.lastIndex;
-
-      if (!isDisplayWorthyTex(tex)) {
-        continue;
-      }
-
-      const before = line.slice(lastIndex, matchStart).trim();
-      if (before) {
-        parts.push(before);
-      }
-
-      parts.push("");
-      parts.push("$$");
-      parts.push(tex.trim());
-      parts.push("$$");
-      parts.push("");
-
-      lastIndex = matchEnd;
-      changed = true;
-    }
-
-    if (!changed) {
-      output.push(line);
-      continue;
-    }
-
-    const after = line.slice(lastIndex).trim();
-    if (after) {
-      parts.push(after);
-    }
-
-    output.push(parts.join("\n"));
-  }
-
-  return output.join("\n");
 }
 
 function wrapStandaloneLatexLines(markdownText: string): string {
@@ -456,20 +351,20 @@ function renderInlineMathInText(text: string): string {
     const start = text.indexOf("$", index);
 
     if (start < 0) {
-      result += escapeHtml(text.slice(index));
+      result += escapeMarkdownText(text.slice(index));
       break;
     }
 
-    // 转义美元符号
+    // 转义美元符号：\$ -> $
     if (start > 0 && text[start - 1] === "\\") {
-      result += escapeHtml(text.slice(index, start - 1)) + "$";
+      result += escapeMarkdownText(text.slice(index, start - 1)) + "$";
       index = start + 1;
       continue;
     }
 
-    // 双美元不在这里处理
+    // 双美元不在这里处理。
     if (text[start + 1] === "$") {
-      result += escapeHtml(text.slice(index, start + 2));
+      result += escapeMarkdownText(text.slice(index, start + 2));
       index = start + 2;
       continue;
     }
@@ -477,14 +372,14 @@ function renderInlineMathInText(text: string): string {
     const end = text.indexOf("$", start + 1);
 
     if (end < 0) {
-      result += escapeHtml(text.slice(index));
+      result += escapeMarkdownText(text.slice(index));
       break;
     }
 
     const before = text.slice(index, start);
     const tex = text.slice(start + 1, end);
 
-    result += escapeHtml(before);
+    result += escapeMarkdownText(before);
     result += `<span class="math-inline">${renderKatex(tex, false)}</span>`;
 
     index = end + 1;
@@ -510,6 +405,11 @@ function renderMathMarkdownToHtml(markdownText: string): string {
     .split("\n")
     .map((line) => {
       if (!line.includes("$")) {
+        return line;
+      }
+
+      // 块级公式已经变成 HTML，不再继续处理。
+      if (line.includes("math-display") || line.includes("katex")) {
         return line;
       }
 
@@ -556,10 +456,7 @@ function repairReportMarkdown(value: string): string {
 
   repaired = standardizeBlockMath(repaired);
   repaired = wrapStandaloneLatexLines(repaired);
-  // 不再把单美元 $...$ 自动提升成块级公式。
-  // 只有 $$...$$ 和整行裸 LaTeX 才按块级公式处理，避免短行内公式被错误居中。
   repaired = standardizeBlockMath(repaired);
-
   repaired = renderMathMarkdownToHtml(repaired);
   repaired = repaired.replace(/\n{3,}/g, "\n\n");
 
