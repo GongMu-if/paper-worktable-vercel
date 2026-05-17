@@ -40,10 +40,22 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function stripHtml(value: string): string {
+  return (value || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"');
+}
+
 function repairLatexExpression(expr: string): string {
   return (expr || "")
     .trim()
+    // \fracTP{TP + FP} -> \frac{TP}{TP + FP}
     .replace(/\\frac\s*([A-Za-z0-9]+)\s*\{/g, "\\frac{$1}{")
+    // \fracTP TP -> \frac{TP}{TP}
     .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
     .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
 }
@@ -65,29 +77,8 @@ function renderKatex(tex: string, displayMode: boolean): string {
   }
 }
 
-function stripHtml(value: string): string {
-  return (value || "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function renderInlineMathCaption(value: string): string {
-  const caption = value || "";
-  if (!caption) return "";
-
-  // repairReportMarkdown 会先把图片 alt 里的 $...$ 转成 KaTeX HTML；
-  // 这里如果已经是 KaTeX/HTML，直接交给 figcaption 渲染，避免显示成源码。
-  if (/<span\b|<math\b|class=["'](?:math-inline|katex)/i.test(caption)) {
-    return caption;
-  }
-
-  const escaped = escapeHtml(caption);
+function renderCaptionHtml(value: string): string {
+  const escaped = escapeHtml(value || "");
   return escaped.replace(/(^|[^\\])\$([^\n$]+?)\$/g, (_, prefix: string, expr: string) => {
     return `${prefix}<span class="math-inline">${renderKatex(expr, false)}</span>`;
   });
@@ -120,23 +111,12 @@ function looksLikeBase64Image(value: string): boolean {
 
   if (!text) return false;
   if (text.startsWith("data:image/")) return true;
+  if (text.startsWith("iVBORw0KGgo")) return true; // PNG
+  if (text.startsWith("/9j/")) return true; // JPEG
+  if (text.startsWith("R0lGOD")) return true; // GIF
+  if (text.startsWith("UklGR")) return true; // WEBP
+  if (text.startsWith("PHN2Zy")) return true; // SVG base64
 
-  // PNG
-  if (text.startsWith("iVBORw0KGgo")) return true;
-
-  // JPEG
-  if (text.startsWith("/9j/")) return true;
-
-  // GIF
-  if (text.startsWith("R0lGOD")) return true;
-
-  // WEBP
-  if (text.startsWith("UklGR")) return true;
-
-  // SVG base64
-  if (text.startsWith("PHN2Zy")) return true;
-
-  // 很长且只包含 base64 字符，也按裸 base64 处理。
   return text.length > 500 && /^[A-Za-z0-9+/=]+$/.test(text);
 }
 
@@ -144,37 +124,14 @@ function inferMimeFromBase64OrName(value: string, name?: string): string {
   const text = normalizeBase64(value || "");
   const lowerName = (name || "").toLowerCase();
 
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
-    return "image/jpeg";
-  }
-
-  if (lowerName.endsWith(".webp")) {
-    return "image/webp";
-  }
-
-  if (lowerName.endsWith(".gif")) {
-    return "image/gif";
-  }
-
-  if (lowerName.endsWith(".svg")) {
-    return "image/svg+xml";
-  }
-
-  if (text.startsWith("/9j/")) {
-    return "image/jpeg";
-  }
-
-  if (text.startsWith("R0lGOD")) {
-    return "image/gif";
-  }
-
-  if (text.startsWith("UklGR")) {
-    return "image/webp";
-  }
-
-  if (text.startsWith("PHN2Zy")) {
-    return "image/svg+xml";
-  }
+  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
+  if (lowerName.endsWith(".webp")) return "image/webp";
+  if (lowerName.endsWith(".gif")) return "image/gif";
+  if (lowerName.endsWith(".svg")) return "image/svg+xml";
+  if (text.startsWith("/9j/")) return "image/jpeg";
+  if (text.startsWith("R0lGOD")) return "image/gif";
+  if (text.startsWith("UklGR")) return "image/webp";
+  if (text.startsWith("PHN2Zy")) return "image/svg+xml";
 
   return "image/png";
 }
@@ -186,26 +143,17 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
     const text = value.trim();
     if (!text) return null;
 
-    if (text.startsWith("data:image/")) {
-      return text;
-    }
+    if (text.startsWith("data:image/")) return text;
+    if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("blob:")) return text;
 
-    if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("blob:")) {
-      return text;
-    }
-
-    // 重要：必须先判断裸 base64，再判断 "/" 路径。
-    // JPEG base64 常以 /9j/ 开头，如果先判断 "/"，会被误当成站内路径。
+    // JPEG base64 常以 /9j/ 开头，所以必须先判断裸 base64，再判断站内路径。
     if (looksLikeBase64Image(text)) {
       const clean = normalizeBase64(text);
       const mime = inferMimeFromBase64OrName(clean, fallbackName);
       return `data:${mime};base64,${clean}`;
     }
 
-    if (text.startsWith("/")) {
-      return text;
-    }
-
+    if (text.startsWith("/")) return text;
     return null;
   }
 
@@ -228,7 +176,6 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
     };
 
     const objectName = item.filename || item.name || fallbackName;
-
     const direct = item.url || item.src || item.path;
     if (direct) {
       const directSrc = toImageSrc(direct, objectName);
@@ -244,10 +191,7 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
       item.imageData;
 
     if (!raw) return null;
-
-    if (raw.startsWith("data:image/")) {
-      return raw;
-    }
+    if (raw.startsWith("data:image/")) return raw;
 
     const clean = normalizeBase64(raw);
     const mime =
@@ -267,7 +211,6 @@ function findImageSrc(
   alt: string | undefined,
   images: Record<string, ImageValue>
 ): string | null {
-  // 如果 markdown 里的 src 本身就是 data URL、URL、站内路径或裸 base64，先直接规范化。
   const srcAsImage = toImageSrc(src, alt || src);
   if (srcAsImage) return srcAsImage;
 
@@ -276,16 +219,9 @@ function findImageSrc(
   for (const candidate of candidates) {
     for (const [name, value] of Object.entries(images || {})) {
       const key = normalizeImageKey(name);
-
       const valueName =
         typeof value === "object" && value
-          ? normalizeImageKey(
-              value.filename ||
-                value.name ||
-                value.path ||
-                value.src ||
-                value.url
-            )
+          ? normalizeImageKey(value.filename || value.name || value.path || value.src || value.url)
           : "";
 
       const matched =
@@ -297,9 +233,7 @@ function findImageSrc(
             valueName.endsWith(candidate) ||
             candidate.endsWith(valueName)));
 
-      if (matched) {
-        return toImageSrc(value, src || alt || name);
-      }
+      if (matched) return toImageSrc(value, src || alt || name);
     }
   }
 
@@ -326,18 +260,70 @@ function protectCodeBlocks(value: string): { text: string; blocks: string[] } {
 
 function restoreCodeBlocks(value: string, blocks: string[]): string {
   let result = value || "";
-
   blocks.forEach((block, index) => {
     result = result.replace(`@@CODE_BLOCK_${index}@@`, block);
   });
-
   return result;
 }
 
-function repairReportMarkdown(value: string): string {
-  const { text, blocks } = protectCodeBlocks(value || "");
+function protectMarkdownImages(value: string): { text: string; images: string[] } {
+  const images: string[] = [];
+  const text = (value || "").replace(/!\[[^\]\n]*\]\([^\n)]+\)/g, (match) => {
+    const key = `@@MARKDOWN_IMAGE_${images.length}@@`;
+    images.push(match);
+    return key;
+  });
+  return { text, images };
+}
 
-  let repaired = text
+function restoreMarkdownImages(value: string, images: string[]): string {
+  let result = value || "";
+  images.forEach((image, index) => {
+    result = result.replace(`@@MARKDOWN_IMAGE_${index}@@`, image);
+  });
+  return result;
+}
+
+function lineLooksLikeLatex(value: string): boolean {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("<span") || trimmed.includes("<div")) return false;
+  if (/^#{1,6}\s/.test(trimmed)) return false;
+  if (/^[-*+]\s+/.test(trimmed)) return false;
+  if (/^\|/.test(trimmed)) return false;
+
+  const commandCount = (trimmed.match(/\\[a-zA-Z]+/g) || []).length;
+  const subscriptCount = (trimmed.match(/[_^]\{/g) || []).length;
+  const hasEquation = /=|\\frac|\\partial|\\sum|\\prod|\\left|\\right/.test(trimmed);
+
+  return hasEquation && commandCount + subscriptCount >= 2;
+}
+
+function splitMixedLatexLine(line: string): string | null {
+  const value = line || "";
+  if (!/[\u4e00-\u9fa5]/.test(value)) return null;
+
+  const candidates = [
+    value.search(/\s=\s*(?:\\|[A-Za-z]_[{A-Za-z0-9])/),
+    value.search(/\\(?:frac|partial|sum|prod|left|right|mu|nu|sigma|varepsilon|mathcal|mathrm|text)\b/),
+  ].filter((idx) => idx >= 0);
+
+  if (!candidates.length) return null;
+  const splitIndex = Math.min(...candidates);
+  if (splitIndex <= 0) return null;
+
+  const prefix = value.slice(0, splitIndex).trimEnd();
+  const formula = value.slice(splitIndex).trim();
+  if (!prefix || !lineLooksLikeLatex(formula)) return null;
+
+  return `${prefix}\n\n<div class="math-display">${renderKatex(formula, true)}</div>`;
+}
+
+function repairReportMarkdown(value: string): string {
+  const { text: codeProtectedText, blocks } = protectCodeBlocks(value || "");
+  const { text: imageProtectedText, images } = protectMarkdownImages(codeProtectedText);
+
+  let repaired = imageProtectedText
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .replace(/\\\$/g, "$")
@@ -345,14 +331,15 @@ function repairReportMarkdown(value: string): string {
     .replace(/\\\)/g, "$")
     .replace(/\\\[/g, "$$")
     .replace(/\\\]/g, "$$");
+
+  // 修复历史报告中常见的嵌套美元符号：$k_i^* ($i \in N$) -> $k_i^*$（$i \in N$）
   repaired = repaired.replace(
     /\$([^$\n]+?)\s*\(\$([^$\n]+?)\$\)/g,
-    (_, before: string, inside: string) => {
-      return `$${before.trim()}$（$${inside.trim()}$）`;
-    }
+    (_, before: string, inside: string) => `$${before.trim()}$（$${inside.trim()}$）`
   );
 
   repaired = repaired.replace(/（\*）/g, "（\\*）");
+
   // 防止模型输出的 4 空格缩进把公式/正文变成代码块。
   repaired = repaired
     .split("\n")
@@ -369,17 +356,23 @@ function repairReportMarkdown(value: string): string {
     return `\n\n<div class="math-display">${renderKatex(expr, true)}</div>\n\n`;
   });
 
-  // 裸 LaTeX 行，例如：\mathrm{Recall} = ...
+  // 裸 LaTeX 行和“中文解释 + 大段裸公式”的行。
   repaired = repaired
     .split("\n")
     .map((line) => {
       const trimmed = line.trim();
+      const mixed = splitMixedLatexLine(line);
+      if (mixed) return mixed;
+
+      if (lineLooksLikeLatex(trimmed) && !/[\u4e00-\u9fa5]/.test(trimmed)) {
+        return `<div class="math-display">${renderKatex(trimmed, true)}</div>`;
+      }
 
       if (
         trimmed &&
         !trimmed.includes("<span") &&
         !trimmed.includes("<div") &&
-        /^\\(mathrm|frac|text|sqrt|sum|prod|alpha|beta|gamma|delta|lambda|mu|sigma|cdot|times|leq|geq)/.test(trimmed)
+        /^\\(mathrm|frac|text|sqrt|sum|prod|alpha|beta|gamma|delta|lambda|mu|nu|sigma|varepsilon|cdot|times|leq|geq|partial|mathcal)/.test(trimmed)
       ) {
         return `<div class="math-display">${renderKatex(trimmed, true)}</div>`;
       }
@@ -388,11 +381,12 @@ function repairReportMarkdown(value: string): string {
     })
     .join("\n");
 
-  // 行内公式
+  // 行内公式。图片语法已保护，因此图片 alt 中的 $...$ 不会在这里变成 HTML。
   repaired = repaired.replace(/(^|[^\\])\$([^\n$]+?)\$/g, (_, prefix: string, expr: string) => {
     return `${prefix}<span class="math-inline">${renderKatex(expr, false)}</span>`;
   });
 
+  repaired = restoreMarkdownImages(repaired, images);
   return restoreCodeBlocks(repaired, blocks);
 }
 
@@ -410,13 +404,9 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
 
       try {
         const normalized = await normalizeReportMarkdown(markdown || "");
-        if (!cancelled) {
-          setNormalizedMarkdown(normalized || markdown || "");
-        }
+        if (!cancelled) setNormalizedMarkdown(normalized || markdown || "");
       } catch {
-        if (!cancelled) {
-          setNormalizedMarkdown(markdown || "");
-        }
+        if (!cancelled) setNormalizedMarkdown(markdown || "");
       }
     }
 
@@ -436,26 +426,26 @@ export function MarkdownReport({ markdown, images = {}, normalize = false }: Pro
     () => ({
       img: ({ src, alt }: { src?: string; alt?: string }) => {
         const finalSrc = findImageSrc(src, alt, images);
+        const safeAlt = stripHtml(alt || "report image");
 
         if (!finalSrc) {
           return (
             <figure className="figure figure-missing">
               <div className="image-missing">
-                图片未找到：{alt || src || "未命名图片"}
+                图片未找到：{safeAlt || src || "未命名图片"}
               </div>
             </figure>
           );
         }
 
-        const captionHtml = alt ? renderInlineMathCaption(alt) : "";
-        const plainAlt = stripHtml(alt || "report image");
-
         return (
           <figure className="figure">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={finalSrc} alt={plainAlt || "report image"} loading="lazy" />
-            {captionHtml ? (
-              <figcaption dangerouslySetInnerHTML={{ __html: captionHtml }} />
+            <img src={finalSrc} alt={safeAlt} loading="lazy" />
+            {alt ? (
+              <figcaption
+                dangerouslySetInnerHTML={{ __html: renderCaptionHtml(alt) }}
+              />
             ) : null}
           </figure>
         );
