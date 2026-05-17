@@ -220,6 +220,10 @@ function repairLatexExpression(expr: string): string {
     .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
     .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
 
+  // 修复以左上标开头的常见论文公式写法：^p\mathcal{L} -> {}^{p}\mathcal{L}
+  // KaTeX 需要给开头的上标一个空基底，否则会按错误公式处理。
+  value = value.replace(/(^|[\s([{,;:=+\-])\^([A-Za-z0-9]+)(?=\\[A-Za-z])/g, "$1{}^{$2}");
+
   // 把常见的多字符下标补成 {...}
   // C_TC -> C_{TC}, \mu_TC -> \mu_{TC}
   value = value.replace(/(\\[A-Za-z]+)_([A-Za-z]{2,})(?=[\s,;:+\-*/=)\]}]|$)/g, "$1_{$2}");
@@ -552,6 +556,8 @@ function repairReportMarkdown(value: string): string {
 
   repaired = standardizeBlockMath(repaired);
   repaired = wrapStandaloneLatexLines(repaired);
+  // 不再把单美元 $...$ 自动提升成块级公式。
+  // 只有 $$...$$ 和整行裸 LaTeX 才按块级公式处理，避免短行内公式被错误居中。
   repaired = standardizeBlockMath(repaired);
 
   repaired = renderMathMarkdownToHtml(repaired);
