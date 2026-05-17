@@ -235,9 +235,10 @@ function renderKatex(tex: string, displayMode: boolean): string {
   try {
     return katex.renderToString(cleaned, {
       displayMode,
-      throwOnError: true,
+      throwOnError: false,
       strict: false,
       trust: false,
+      errorColor: "#111827",
     });
   } catch {
     // 不显示红色报错，不把中文吞进去；渲染失败时只显示普通等宽文本。
@@ -551,7 +552,6 @@ function repairReportMarkdown(value: string): string {
 
   repaired = standardizeBlockMath(repaired);
   repaired = wrapStandaloneLatexLines(repaired);
-  repaired = promoteLongInlineMathToDisplay(repaired);
   repaired = standardizeBlockMath(repaired);
 
   repaired = renderMathMarkdownToHtml(repaired);
