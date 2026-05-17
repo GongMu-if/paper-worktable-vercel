@@ -41,8 +41,8 @@ function escapeHtml(value: string): string {
 }
 
 function escapeMarkdownText(value: string): string {
-  // 避免非公式文本里的下划线被 ReactMarkdown 当成斜体/强调。
-  return escapeHtml(value).replace(/_/g, "\\_");
+  // 只处理普通正文，避免 TC_p / IGF1R_I / Theta_TC 这类文本被 Markdown 当作斜体。
+  return escapeHtml(value).replace(/(?<!\\)_/g, "\\_");
 }
 
 function safeDecodeURIComponent(value: string): string {
@@ -235,18 +235,13 @@ function renderKatex(tex: string, displayMode: boolean): string {
   const cleaned = repairLatexExpression(tex || "");
   if (!cleaned) return "";
 
-  try {
-    return katex.renderToString(cleaned, {
-      displayMode,
-      throwOnError: false,
-      strict: false,
-      trust: false,
-      errorColor: "#111827",
-    });
-  } catch {
-    const className = displayMode ? "math-fallback math-fallback-display" : "math-fallback";
-    return `<span class="${className}">${escapeHtml(cleaned)}</span>`;
-  }
+  return katex.renderToString(cleaned, {
+    displayMode,
+    throwOnError: false,
+    strict: false,
+    trust: false,
+    errorColor: "#111827",
+  });
 }
 
 function protectBlocks(value: string): { text: string; blocks: string[] } {
@@ -343,6 +338,27 @@ function wrapStandaloneLatexLines(markdownText: string): string {
   return output.join("\n");
 }
 
+function renderBareLatexCommandsInTextSegment(text: string): string {
+  const pattern =
+    /\\(?:Theta|theta|sigma|Sigma|mu|nu|varepsilon|epsilon|mathcal|mathbb|mathrm|mathbf|tilde|widetilde|bar|hat|alpha|beta|gamma|delta|lambda|partial|nabla|cdot|times|infty)(?:\{[^{}\n]*\})?(?:_\{[^{}\n]+\}|_[A-Za-z0-9]+)?(?:\^\{[^{}\n]+\}|\^[A-Za-z0-9*]+)?/g;
+
+  let result = "";
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    const raw = match[0] || "";
+    if (!raw) continue;
+
+    result += escapeMarkdownText(text.slice(lastIndex, match.index));
+    result += `<span class="math-inline">${renderKatex(raw, false)}</span>`;
+    lastIndex = match.index + raw.length;
+  }
+
+  result += escapeMarkdownText(text.slice(lastIndex));
+  return result;
+}
+
 function renderInlineMathInText(text: string): string {
   let result = "";
   let index = 0;
@@ -351,20 +367,20 @@ function renderInlineMathInText(text: string): string {
     const start = text.indexOf("$", index);
 
     if (start < 0) {
-      result += escapeMarkdownText(text.slice(index));
+      result += renderBareLatexCommandsInTextSegment(text.slice(index));
       break;
     }
 
     // 转义美元符号：\$ -> $
     if (start > 0 && text[start - 1] === "\\") {
-      result += escapeMarkdownText(text.slice(index, start - 1)) + "$";
+      result += renderBareLatexCommandsInTextSegment(text.slice(index, start - 1)) + "$";
       index = start + 1;
       continue;
     }
 
     // 双美元不在这里处理。
     if (text[start + 1] === "$") {
-      result += escapeMarkdownText(text.slice(index, start + 2));
+      result += renderBareLatexCommandsInTextSegment(text.slice(index, start + 2));
       index = start + 2;
       continue;
     }
@@ -372,14 +388,14 @@ function renderInlineMathInText(text: string): string {
     const end = text.indexOf("$", start + 1);
 
     if (end < 0) {
-      result += escapeMarkdownText(text.slice(index));
+      result += renderBareLatexCommandsInTextSegment(text.slice(index));
       break;
     }
 
     const before = text.slice(index, start);
     const tex = text.slice(start + 1, end);
 
-    result += escapeMarkdownText(before);
+    result += renderBareLatexCommandsInTextSegment(before);
     result += `<span class="math-inline">${renderKatex(tex, false)}</span>`;
 
     index = end + 1;
@@ -400,14 +416,10 @@ function renderMathMarkdownToHtml(markdownText: string): string {
     return `\n\n<div class="math-display">${renderKatex(cleaned, true)}</div>\n\n`;
   });
 
-  // 再逐行渲染行内公式，避免跨行把中文吞进去。
+  // 再逐行渲染行内公式和裸露 LaTeX 命令，避免跨行把中文吞进去。
   text = text
     .split("\n")
     .map((line) => {
-      if (!line.includes("$")) {
-        return line;
-      }
-
       // 块级公式已经变成 HTML，不再继续处理。
       if (line.includes("math-display") || line.includes("katex")) {
         return line;
