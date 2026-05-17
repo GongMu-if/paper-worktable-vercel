@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import katex from "katex";
 import { normalizeReportMarkdown } from "@/lib/api";
 
 type ImageValue =
@@ -32,6 +31,14 @@ type Props = {
   images?: Record<string, ImageValue>;
   normalize?: boolean;
 };
+
+function escapeHtml(value: string): string {
+  return (value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 function safeDecodeURIComponent(value: string): string {
   try {
@@ -60,7 +67,6 @@ function looksLikeBase64Image(value: string): boolean {
 
   if (!text) return false;
   if (text.startsWith("data:image/")) return true;
-
   if (text.startsWith("iVBORw0KGgo")) return true; // PNG
   if (text.startsWith("/9j/")) return true; // JPEG
   if (text.startsWith("R0lGOD")) return true; // GIF
@@ -74,21 +80,10 @@ function inferMimeFromBase64OrName(value: string, name?: string): string {
   const text = normalizeBase64(value || "");
   const lowerName = (name || "").toLowerCase();
 
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
-    return "image/jpeg";
-  }
-
-  if (lowerName.endsWith(".webp")) {
-    return "image/webp";
-  }
-
-  if (lowerName.endsWith(".gif")) {
-    return "image/gif";
-  }
-
-  if (lowerName.endsWith(".svg")) {
-    return "image/svg+xml";
-  }
+  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
+  if (lowerName.endsWith(".webp")) return "image/webp";
+  if (lowerName.endsWith(".gif")) return "image/gif";
+  if (lowerName.endsWith(".svg")) return "image/svg+xml";
 
   if (text.startsWith("/9j/")) return "image/jpeg";
   if (text.startsWith("R0lGOD")) return "image/gif";
@@ -106,17 +101,11 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
     if (!text) return null;
 
     if (text.startsWith("data:image/")) return text;
-
-    if (
-      text.startsWith("http://") ||
-      text.startsWith("https://") ||
-      text.startsWith("blob:")
-    ) {
+    if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("blob:")) {
       return text;
     }
 
-    // 注意：必须先判断 base64，再判断 "/"。
-    // JPEG base64 常以 /9j/ 开头，如果先判断 "/" 会被误当成站内路径。
+    // JPEG base64 常以 /9j/ 开头，所以必须先判断 base64，再判断 "/"。
     if (looksLikeBase64Image(text)) {
       const clean = normalizeBase64(text);
       const mime = inferMimeFromBase64OrName(clean, fallbackName);
@@ -221,6 +210,42 @@ function findImageSrc(
   return null;
 }
 
+function repairLatexExpression(expr: string): string {
+  let value = (expr || "").trim();
+
+  value = value
+    // \fracTP{TP + FN} -> \frac{TP}{TP + FN}
+    .replace(/\\frac\s*([A-Za-z0-9]+)\s*\{/g, "\\frac{$1}{")
+    // \fracTP TP -> \frac{TP}{TP}
+    .replace(/\\frac\s*([A-Za-z0-9]+)\s+([A-Za-z0-9]+)/g, "\\frac{$1}{$2}")
+    .replace(/\\mathrm\{F1\\text\{-\}score\}/g, "\\mathrm{F1\\text{-}score}");
+
+  // 把常见的多字符下标补成 {...}
+  // C_TC -> C_{TC}, \mu_TC -> \mu_{TC}
+  value = value.replace(/(\\[A-Za-z]+)_([A-Za-z]{2,})(?=[\s,;:+\-*/=)\]}]|$)/g, "$1_{$2}");
+  value = value.replace(/([A-Za-z])_([A-Za-z]{2,})(?=[\s,;:+\-*/=)\]}]|$)/g, "$1_{$2}");
+
+  return value;
+}
+
+function renderKatex(tex: string, displayMode: boolean): string {
+  const cleaned = repairLatexExpression(tex || "");
+  if (!cleaned) return "";
+
+  try {
+    return katex.renderToString(cleaned, {
+      displayMode,
+      throwOnError: true,
+      strict: false,
+      trust: false,
+    });
+  } catch {
+    // 不显示红色报错，不把中文吞进去；渲染失败时只显示普通等宽文本。
+    const className = displayMode ? "math-fallback math-fallback-display" : "math-fallback";
+    return `<span class="${className}">${escapeHtml(cleaned)}</span>`;
+  }
+}
+
 function protectBlocks(value: string): { text: string; blocks: string[] } {
   const blocks: string[] = [];
 
@@ -230,7 +255,7 @@ function protectBlocks(value: string): { text: string; blocks: string[] } {
     return key;
   });
 
-  // 保护图片语法，避免图片 alt 里的 $...$ 被预处理破坏。
+  // 保护图片语法，避免图片 alt 中的 $...$ 被正文公式预处理破坏。
   text = text.replace(/!\[[\s\S]*?]\([^)]+\)/g, (match) => {
     const key = `@@PROTECTED_BLOCK_${blocks.length}@@`;
     blocks.push(match);
@@ -280,7 +305,6 @@ function isDisplayWorthyTex(tex: string): boolean {
   // 短变量不要提升，例如 $t$、$C_{TC}^*$、$\mu_{TC}$
   if (value.length < 28) return false;
 
-  // 明显是方程、偏导、分式、损失函数、长表达式的公式才提升
   return (
     value.includes("=") ||
     value.includes("\\frac") ||
@@ -294,67 +318,201 @@ function isDisplayWorthyTex(tex: string): boolean {
   );
 }
 
+function standardizeBlockMath(markdownText: string): string {
+  // 把同一行里的 $$ ... $$ 统一变成标准块级公式：
+  // 正文 $$ a=b $$ 后文
+  // ->
+  // 正文
+  //
+  // $$
+  // a=b
+  // $$
+  //
+  // 后文
+  return (markdownText || "").replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
+    const cleaned = String(expr || "").trim();
+
+    if (!cleaned) return "";
+
+    return `\n\n$$\n${cleaned}\n$$\n\n`;
+  });
+}
+
 function promoteLongInlineMathToDisplay(markdownText: string): string {
-  return (markdownText || "")
+  const lines = (markdownText || "").split("\n");
+  const output: string[] = [];
+  let inBlockMath = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed === "$$") {
+      inBlockMath = !inBlockMath;
+      output.push(line);
+      continue;
+    }
+
+    if (inBlockMath) {
+      output.push(line);
+      continue;
+    }
+
+    if (
+      !trimmed ||
+      trimmed.startsWith("#") ||
+      trimmed.startsWith("|") ||
+      trimmed.startsWith("@@PROTECTED_BLOCK_")
+    ) {
+      output.push(line);
+      continue;
+    }
+
+    const inlineMathRe = /(^|[^\\])\$([^$\n]+?)\$/g;
+    const parts: string[] = [];
+    let lastIndex = 0;
+    let changed = false;
+    let match: RegExpExecArray | null;
+
+    while ((match = inlineMathRe.exec(line)) !== null) {
+      const prefix = match[1] || "";
+      const tex = match[2] || "";
+      const matchStart = match.index + prefix.length;
+      const matchEnd = inlineMathRe.lastIndex;
+
+      if (!isDisplayWorthyTex(tex)) {
+        continue;
+      }
+
+      const before = line.slice(lastIndex, matchStart).trim();
+      if (before) {
+        parts.push(before);
+      }
+
+      parts.push("");
+      parts.push("$$");
+      parts.push(tex.trim());
+      parts.push("$$");
+      parts.push("");
+
+      lastIndex = matchEnd;
+      changed = true;
+    }
+
+    if (!changed) {
+      output.push(line);
+      continue;
+    }
+
+    const after = line.slice(lastIndex).trim();
+    if (after) {
+      parts.push(after);
+    }
+
+    output.push(parts.join("\n"));
+  }
+
+  return output.join("\n");
+}
+
+function wrapStandaloneLatexLines(markdownText: string): string {
+  const lines = (markdownText || "").split("\n");
+  const output: string[] = [];
+  let inBlockMath = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed === "$$") {
+      inBlockMath = !inBlockMath;
+      output.push(line);
+      continue;
+    }
+
+    if (!inBlockMath && looksLikeStandaloneLatex(trimmed)) {
+      output.push("");
+      output.push("$$");
+      output.push(trimmed);
+      output.push("$$");
+      output.push("");
+      continue;
+    }
+
+    output.push(line);
+  }
+
+  return output.join("\n");
+}
+
+function renderInlineMathInText(text: string): string {
+  let result = "";
+  let index = 0;
+
+  while (index < text.length) {
+    const start = text.indexOf("$", index);
+
+    if (start < 0) {
+      result += escapeHtml(text.slice(index));
+      break;
+    }
+
+    // 转义美元符号
+    if (start > 0 && text[start - 1] === "\\") {
+      result += escapeHtml(text.slice(index, start - 1)) + "$";
+      index = start + 1;
+      continue;
+    }
+
+    // 双美元不在这里处理
+    if (text[start + 1] === "$") {
+      result += escapeHtml(text.slice(index, start + 2));
+      index = start + 2;
+      continue;
+    }
+
+    const end = text.indexOf("$", start + 1);
+
+    if (end < 0) {
+      result += escapeHtml(text.slice(index));
+      break;
+    }
+
+    const before = text.slice(index, start);
+    const tex = text.slice(start + 1, end);
+
+    result += escapeHtml(before);
+    result += `<span class="math-inline">${renderKatex(tex, false)}</span>`;
+
+    index = end + 1;
+  }
+
+  return result;
+}
+
+function renderMathMarkdownToHtml(markdownText: string): string {
+  let text = markdownText || "";
+
+  // 先渲染块级公式。
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
+    const cleaned = String(expr || "").trim();
+
+    if (!cleaned) return "";
+
+    return `\n\n<div class="math-display">${renderKatex(cleaned, true)}</div>\n\n`;
+  });
+
+  // 再逐行渲染行内公式，避免跨行把中文吞进去。
+  text = text
     .split("\n")
     .map((line) => {
-      const trimmed = line.trim();
-
-      if (
-        !trimmed ||
-        trimmed === "$$" ||
-        trimmed.startsWith("#") ||
-        trimmed.startsWith("|") ||
-        trimmed.startsWith("@@PROTECTED_BLOCK_") ||
-        trimmed.includes("<div") ||
-        trimmed.includes("<span")
-      ) {
+      if (!line.includes("$")) {
         return line;
       }
 
-      const inlineMathRe = /(^|[^\\])\$([^$\n]+?)\$/g;
-      const parts: string[] = [];
-      let lastIndex = 0;
-      let changed = false;
-      let match: RegExpExecArray | null;
-
-      while ((match = inlineMathRe.exec(line)) !== null) {
-        const prefix = match[1] || "";
-        const tex = match[2] || "";
-        const matchStart = match.index + prefix.length;
-        const matchEnd = inlineMathRe.lastIndex;
-
-        if (!isDisplayWorthyTex(tex)) {
-          continue;
-        }
-
-        const before = line.slice(lastIndex, matchStart).trim();
-        if (before) {
-          parts.push(before);
-        }
-
-        parts.push("");
-        parts.push("$$");
-        parts.push(tex.trim());
-        parts.push("$$");
-        parts.push("");
-
-        lastIndex = matchEnd;
-        changed = true;
-      }
-
-      if (!changed) {
-        return line;
-      }
-
-      const after = line.slice(lastIndex).trim();
-      if (after) {
-        parts.push(after);
-      }
-
-      return parts.join("\n");
+      return renderInlineMathInText(line);
     })
     .join("\n");
+
+  return text;
 }
 
 function repairReportMarkdown(value: string): string {
@@ -368,26 +526,6 @@ function repairReportMarkdown(value: string): string {
     .replace(/\\\)/g, "$")
     .replace(/\\\[/g, "\n\n$$\n")
     .replace(/\\\]/g, "\n$$\n\n");
-
-  // 把同一行里的 $$ ... $$ 统一改成标准块级公式。
-  // 例如：正文： $$ a=b $$ 其中...
-  // 会变成：
-  // 正文：
-  //
-  // $$
-  // a=b
-  // $$
-  //
-  // 其中...
-  repaired = repaired.replace(/\$\$([\s\S]*?)\$\$/g, (_, expr: string) => {
-    const cleaned = String(expr || "").trim();
-
-    if (!cleaned) {
-      return "";
-    }
-
-    return `\n\n$$\n${cleaned}\n$$\n\n`;
-  });
 
   // 修复历史报告中常见的嵌套美元符号：
   // $k_i^* ($i \in \mathbb{N}^+$) -> $k_i^*$（$i \in \mathbb{N}^+$）
@@ -411,25 +549,12 @@ function repairReportMarkdown(value: string): string {
     })
     .join("\n");
 
-  // 只把“整行裸 LaTeX”包成块级公式。
-  // 不处理“中文 + 公式混在一行”的情况，避免把中文吞进 KaTeX。
-  repaired = repaired
-    .split("\n")
-    .map((line) => {
-      const trimmed = line.trim();
-
-      if (looksLikeStandaloneLatex(trimmed)) {
-        return `\n$$\n${trimmed}\n$$\n`;
-      }
-
-      return line;
-    })
-    .join("\n");
-
-  // 把复杂长行内公式自动提升成块级公式。
-  // 例如：PINN被定义为 $f_{TC}^p = ...$。其中...
+  repaired = standardizeBlockMath(repaired);
+  repaired = wrapStandaloneLatexLines(repaired);
   repaired = promoteLongInlineMathToDisplay(repaired);
+  repaired = standardizeBlockMath(repaired);
 
+  repaired = renderMathMarkdownToHtml(repaired);
   repaired = repaired.replace(/\n{3,}/g, "\n\n");
 
   return restoreBlocks(repaired, blocks);
@@ -444,18 +569,17 @@ function stripMarkdownImageCaption(value: string): string {
     .trim();
 }
 
-function CaptionMarkdown({ text }: { text: string }) {
+function renderCaptionHtml(text: string): string {
+  return renderInlineMathInText(text || "");
+}
+
+function CaptionHtml({ text }: { text: string }) {
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
-      rehypePlugins={[rehypeRaw, rehypeKatex]}
-      components={{
-        p: ({ children }) => <>{children}</>,
+    <span
+      dangerouslySetInnerHTML={{
+        __html: renderCaptionHtml(text),
       }}
-      skipHtml={false}
-    >
-      {text || ""}
-    </ReactMarkdown>
+    />
   );
 }
 
@@ -522,7 +646,7 @@ export function MarkdownReport({
             <img src={finalSrc} alt={safeAlt || "report image"} loading="lazy" />
             {alt ? (
               <figcaption>
-                <CaptionMarkdown text={alt} />
+                <CaptionHtml text={alt} />
               </figcaption>
             ) : null}
           </figure>
@@ -535,8 +659,8 @@ export function MarkdownReport({
   return (
     <div className="report-markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
-        rehypePlugins={[rehypeRaw, rehypeKatex]}
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
         components={components as never}
         skipHtml={false}
       >
