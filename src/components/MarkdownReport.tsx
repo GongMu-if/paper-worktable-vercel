@@ -98,15 +98,16 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
       return text;
     }
 
-    if (looksLikeBase64Image(text)) {
-      const clean = normalizeBase64(text);
-      const mime = inferMimeFromBase64OrName(clean, fallbackName);
-      return `data:${mime};base64,${clean}`;
-    }
-
     if (text.startsWith("/")) return text;
 
-    return null;
+    // 这里必须保持宽松：后端 images_manifest 里经常直接存“裸 base64 字符串”。
+    // 上一版把它改成只有 looksLikeBase64Image(text) 才转换，导致部分图片值被判定为 null，
+    // Markdown 语法本身没问题，但前端拿不到 data:image/...，所以图片显示失败。
+    const clean = normalizeBase64(text);
+    if (!clean) return null;
+
+    const mime = inferMimeFromBase64OrName(clean, fallbackName);
+    return `data:${mime};base64,${clean}`;
   }
 
   if (typeof value === "object") {
