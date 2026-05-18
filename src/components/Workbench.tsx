@@ -28,6 +28,7 @@ import { MarkdownReport } from "./MarkdownReport";
 
 const JOB_STATUS_REFRESH_INTERVAL_MS = 180000;
 const DEFAULT_PREPRINT_RULE = "排除预印本 (仅限正规期刊/会议)";
+const MAX_ANALYSIS_SUBMIT_CONCURRENCY = 1; // 原 PDF 解析 API 不稳定时保持 1；确认服务支持后可改为 2。
 
 type AppState = "IDLE" | "SEARCH_RUNNING" | "WAITING_FEEDBACK" | "COMPLETED";
 type AuthMode = "login" | "register";
@@ -760,36 +761,47 @@ export function Workbench() {
 
       const ready: ReadyReport[] = [];
 
-      await Promise.all(
-        submittedFiles.map(async (file, index) => {
-          const row = initialRows[index];
+      async function submitOneAnalysisFile(file: File, index: number) {
+        const row = initialRows[index];
 
-          try {
-            // 历史报告查重已关闭：不再读取 cached report，也不再复用同 cache_key 的旧任务。
-            // 每次上传都生成一个带 rerun 后缀的新 cache_key，让后端创建全新的解析任务。
-            const result = await createOrReuseAnalysisJob(currentUser, row.source_name, row.cache_key);
+        try {
+          // 历史报告查重已关闭：不再读取 cached report，也不再复用同 cache_key 的旧任务。
+          // 每次上传都生成一个带 rerun 后缀的新 cache_key，让后端创建全新的解析任务。
+          const result = await createOrReuseAnalysisJob(currentUser, row.source_name, row.cache_key);
+
+          updateBatchRow(row.cache_key, {
+            report_id: result.job.report_id,
+            status: result.job.status || "queued",
+            progress_text: result.job.progress_text || "任务已创建。",
+          });
+
+          if (result.should_submit) {
+            await submitAnalysisJob(result.job.report_id, row.source_name, row.cache_key, file);
+            await updateAnalysisJobStatus(result.job.report_id, "processing", "后台任务已启动，等待离线解析完成");
 
             updateBatchRow(row.cache_key, {
               report_id: result.job.report_id,
-              status: result.job.status || "queued",
-              progress_text: result.job.progress_text || "任务已创建。",
+              status: "processing",
+              progress_text: "后台任务已创建，正在等待离线解析。",
             });
+          }
+        } catch (err) {
+          updateBatchRow(row.cache_key, {
+            status: "failed",
+            progress_text: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
-            if (result.should_submit) {
-              await submitAnalysisJob(result.job.report_id, row.source_name, row.cache_key, file);
-              await updateAnalysisJobStatus(result.job.report_id, "processing", "后台任务已启动，等待离线解析完成");
+      let nextFileIndex = 0;
+      const workerCount = Math.min(MAX_ANALYSIS_SUBMIT_CONCURRENCY, submittedFiles.length);
 
-              updateBatchRow(row.cache_key, {
-                report_id: result.job.report_id,
-                status: "processing",
-                progress_text: "后台任务已创建，正在等待离线解析。",
-              });
-            }
-          } catch (err) {
-            updateBatchRow(row.cache_key, {
-              status: "failed",
-              progress_text: err instanceof Error ? err.message : String(err),
-            });
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          while (nextFileIndex < submittedFiles.length) {
+            const currentIndex = nextFileIndex;
+            nextFileIndex += 1;
+            await submitOneAnalysisFile(submittedFiles[currentIndex], currentIndex);
           }
         })
       );
