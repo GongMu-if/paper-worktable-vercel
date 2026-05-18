@@ -729,49 +729,70 @@ export function Workbench() {
       clearSelectedPdfFiles();
       setView({ type: "analysis-batch", files: submittedFiles });
 
-      const rows: BatchRow[] = [];
-      const ready: ReadyReport[] = [];
       const rerunStamp = Date.now();
 
-      for (let index = 0; index < submittedFiles.length; index += 1) {
-        const file = submittedFiles[index];
-        const baseCacheKey = await getPdfCacheKey(file, analysisCacheVersion);
-        const cacheKey = `${baseCacheKey}:rerun:${rerunStamp}:${index + 1}`;
-        let row: BatchRow = {
-          index: index + 1,
-          source_name: file.name || `paper_${index + 1}.pdf`,
-          cache_key: cacheKey,
-          status: "processing",
-          progress_text: "任务正在初始化中，请稍候。",
-        };
-        rows.push(row);
-        setBatchRows([...rows]);
+      const initialRows: BatchRow[] = await Promise.all(
+        submittedFiles.map(async (file, index) => {
+          const baseCacheKey = await getPdfCacheKey(file, analysisCacheVersion);
+          const cacheKey = `${baseCacheKey}:rerun:${rerunStamp}:${index + 1}`;
 
-        try {
-          // 历史报告查重已关闭：不再读取 cached report，也不再复用同 cache_key 的旧任务。
-          // 每次上传都生成一个带 rerun 后缀的新 cache_key，让后端创建全新的解析任务。
-          const result = await createOrReuseAnalysisJob(currentUser, row.source_name, cacheKey);
-          row = {
-            ...row,
-            report_id: result.job.report_id,
-            status: result.job.status || "queued",
-            progress_text: result.job.progress_text || "任务已创建。",
+          return {
+            index: index + 1,
+            source_name: file.name || `paper_${index + 1}.pdf`,
+            cache_key: cacheKey,
+            status: "processing",
+            progress_text: "任务正在初始化中，请稍候。",
           };
-          rows[index] = row;
-          setBatchRows([...rows]);
+        })
+      );
 
-          if (result.should_submit) {
-            await submitAnalysisJob(result.job.report_id, row.source_name, cacheKey, file);
-            await updateAnalysisJobStatus(result.job.report_id, "processing", "后台任务已启动，等待离线解析完成");
-            row = { ...row, status: "processing", progress_text: "后台任务已创建，正在等待离线解析。" };
-            rows[index] = row;
-            setBatchRows([...rows]);
+      setBatchRows(initialRows);
+
+      const updateBatchRow = (cacheKey: string, patch: Partial<BatchRow>) => {
+        setBatchRows((previous) =>
+          previous.map((row) =>
+            row.cache_key === cacheKey
+              ? { ...row, ...patch }
+              : row
+          )
+        );
+      };
+
+      const ready: ReadyReport[] = [];
+
+      await Promise.all(
+        submittedFiles.map(async (file, index) => {
+          const row = initialRows[index];
+
+          try {
+            // 历史报告查重已关闭：不再读取 cached report，也不再复用同 cache_key 的旧任务。
+            // 每次上传都生成一个带 rerun 后缀的新 cache_key，让后端创建全新的解析任务。
+            const result = await createOrReuseAnalysisJob(currentUser, row.source_name, row.cache_key);
+
+            updateBatchRow(row.cache_key, {
+              report_id: result.job.report_id,
+              status: result.job.status || "queued",
+              progress_text: result.job.progress_text || "任务已创建。",
+            });
+
+            if (result.should_submit) {
+              await submitAnalysisJob(result.job.report_id, row.source_name, row.cache_key, file);
+              await updateAnalysisJobStatus(result.job.report_id, "processing", "后台任务已启动，等待离线解析完成");
+
+              updateBatchRow(row.cache_key, {
+                report_id: result.job.report_id,
+                status: "processing",
+                progress_text: "后台任务已创建，正在等待离线解析。",
+              });
+            }
+          } catch (err) {
+            updateBatchRow(row.cache_key, {
+              status: "failed",
+              progress_text: err instanceof Error ? err.message : String(err),
+            });
           }
-        } catch (err) {
-          rows[index] = { ...row, status: "failed", progress_text: err instanceof Error ? err.message : String(err) };
-          setBatchRows([...rows]);
-        }
-      }
+        })
+      );
 
       setReadyReports(ready);
       await refreshHistories(currentUser);
