@@ -97,15 +97,27 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
       text.startsWith("data:") ||
       text.startsWith("http://") ||
       text.startsWith("https://") ||
-      text.startsWith("/") ||
       text.startsWith("blob:")
     ) {
       return text;
     }
 
-    // 恢复旧版行为：后端 images_manifest 里的字符串图片值就是裸 base64。
-    // 不要用 looksLikeBase64Image 严格判断，否则部分合法图片会被判定为 null。
-    return `data:${inferMimeFromBase64OrName(text, fallbackName)};base64,${text}`;
+    // 关键修复：JPEG base64 常以 /9j/ 开头，不能先按 "/" 路径处理。
+    if (looksLikeBase64Image(text) || text.startsWith("/9j/")) {
+      const clean = normalizeBase64(text);
+      const mime = inferMimeFromBase64OrName(clean, fallbackName);
+      return `data:${mime};base64,${clean}`;
+    }
+
+    // 真正的站内路径放到 base64 判断之后。
+    if (text.startsWith("/")) {
+      return text;
+    }
+
+    // 后端 images_manifest 里的字符串通常就是裸 base64，保留宽松兼容。
+    const clean = normalizeBase64(text);
+    const mime = inferMimeFromBase64OrName(clean, fallbackName);
+    return `data:${mime};base64,${clean}`;
   }
 
   if (typeof value === "object") {
@@ -126,6 +138,28 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
       url?: string;
     };
 
+    const raw =
+      item.data ||
+      item.base64 ||
+      item.b64 ||
+      item.content ||
+      item.image_base64 ||
+      item.imageData;
+
+    // 关键修复：对象里如果有 raw/base64，优先处理 raw，不要先拿 path/src。
+    if (raw) {
+      if (raw.startsWith("data:")) return raw;
+
+      const clean = normalizeBase64(raw);
+      const mime =
+        item.mime ||
+        item.mime_type ||
+        item.content_type ||
+        inferMimeFromBase64OrName(clean, item.filename || item.name || fallbackName);
+
+      return `data:${mime};base64,${clean}`;
+    }
+
     const direct = item.url || item.src || item.path;
     if (
       direct &&
@@ -138,24 +172,7 @@ function toImageSrc(value: unknown, fallbackName?: string): string | null {
       return direct;
     }
 
-    const raw =
-      item.data ||
-      item.base64 ||
-      item.b64 ||
-      item.content ||
-      item.image_base64 ||
-      item.imageData;
-
-    if (!raw) return null;
-    if (raw.startsWith("data:")) return raw;
-
-    const mime =
-      item.mime ||
-      item.mime_type ||
-      item.content_type ||
-      inferMimeFromBase64OrName(raw, item.filename || item.name || fallbackName);
-
-    return `data:${mime};base64,${raw}`;
+    return null;
   }
 
   return null;
