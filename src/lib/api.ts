@@ -10,22 +10,44 @@ import type {
   SearchRecord,
 } from "./types";
 
+function formatRpcError(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value instanceof Error) return value.message;
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 async function parseJsonResponse<T>(response: Response, context: string): Promise<T> {
   let payload: RpcEnvelope<T> | Record<string, unknown>;
+
   try {
     payload = await response.json();
   } catch (error) {
-    throw new Error(`${context} 返回了无法解析的响应：${String(error)}`);
+    throw new Error(`${context} 返回了无法解析的响应：${formatRpcError(error)}`);
   }
 
   if (!response.ok) {
-    const message = (payload as RpcEnvelope<T>).message || (payload as RpcEnvelope<T>).error || `HTTP ${response.status}`;
-    throw new Error(`${context} 失败：${message}`);
+    const message =
+      (payload as RpcEnvelope<T>).message ||
+      (payload as RpcEnvelope<T>).error ||
+      `HTTP ${response.status}`;
+
+    throw new Error(`${context} 失败：${formatRpcError(message)}`);
   }
 
   if ((payload as RpcEnvelope<T>).status && (payload as RpcEnvelope<T>).status !== "ok") {
-    const message = (payload as RpcEnvelope<T>).message || (payload as RpcEnvelope<T>).error || `${context} 执行失败`;
-    throw new Error(message);
+    const message =
+      (payload as RpcEnvelope<T>).message ||
+      (payload as RpcEnvelope<T>).error ||
+      `${context} 执行失败`;
+
+    throw new Error(`${context} 失败：${formatRpcError(message)}`);
   }
 
   return ((payload as RpcEnvelope<T>).data ?? payload) as T;
@@ -139,11 +161,11 @@ export async function submitAnalysisJob(jobId: string, sourceName: string, cache
 
   const result = await response.json().catch(() => null) as Record<string, unknown> | null;
   if (!response.ok) {
-    throw new Error(String(result?.message || result?.error || `HTTP ${response.status}`));
+    throw new Error(formatRpcError(result?.message || result?.error || `HTTP ${response.status}`));
   }
   const status = String(result?.status || "");
   if (!["accepted", "queued", "processing", "ok"].includes(status)) {
-    throw new Error(String(result?.message || result?.error || "后端解析任务未被接受。"));
+    throw new Error(formatRpcError(result?.message || result?.error || "后端解析任务未被接受。"));
   }
   return result || {};
 }
