@@ -5,6 +5,9 @@ import type {
   PublicConfig,
   ReportMeta,
   ReportRecord,
+  IntroductionMeta,
+  IntroductionRecord,
+  IntroductionSubmitArgs,
   RpcEnvelope,
   SearchMeta,
   SearchRecord,
@@ -221,4 +224,90 @@ export async function submitPaperSearchJob(searchJobId: string): Promise<Record<
 
 export async function finalizePaperSearchJob(searchJobId: string): Promise<Record<string, unknown>> {
   return backendRpc<Record<string, unknown>>("finalize_paper_search_job", { search_job_id: searchJobId });
+}
+
+
+export async function loadUserIntroductionIndex(username: string): Promise<IntroductionMeta[]> {
+  return backendRpc<IntroductionMeta[]>("load_user_introduction_index", { username });
+}
+
+export async function getUserIntroductionJobState(username: string, introJobId: string): Promise<IntroductionRecord | null> {
+  return backendRpc<IntroductionRecord | null>("get_user_introduction_job_state", {
+    username,
+    intro_job_id: introJobId,
+  });
+}
+
+export async function loadUserIntroductionRecord(username: string, introJobId: string): Promise<IntroductionRecord | null> {
+  return backendRpc<IntroductionRecord | null>("load_user_introduction_record", {
+    username,
+    intro_job_id: introJobId,
+  });
+}
+
+export async function submitIntroductionJob(args: IntroductionSubmitArgs, seedPdfFile?: File | null): Promise<Record<string, unknown>> {
+  const directUploadUrl = process.env.NEXT_PUBLIC_DIRECT_INTRODUCTION_UPLOAD_URL;
+  const formData = new FormData();
+  formData.append("username", args.username);
+  formData.append("title", args.title || "Introduction 写作任务");
+  formData.append("has_seed_pdf", args.hasSeedPdf ? "true" : "false");
+  formData.append("manual_problem_text", args.manualProblemText || "");
+  formData.append("task_goal", args.taskGoal || "");
+  formData.append("task_granularity", args.taskGranularity || "");
+  formData.append("research_object", args.researchObject || "");
+  formData.append("input_output", args.inputOutput || "");
+  formData.append("has_user_innovation", args.hasUserInnovation ? "true" : "false");
+  formData.append("user_innovation_text", args.userInnovationText || "");
+  formData.append("target_language", args.targetLanguage || "中文");
+  formData.append("target_words", args.targetWords || "");
+
+  if (seedPdfFile) {
+    formData.append("file", seedPdfFile, seedPdfFile.name || "seed.pdf");
+  }
+
+  const response = await fetch(directUploadUrl || "/api/introduction-upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  const result = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) {
+    throw new Error(formatRpcError(result?.message || result?.error || `HTTP ${response.status}`));
+  }
+  const status = String(result?.status || "");
+  if (!["accepted", "queued", "processing", "ok"].includes(status)) {
+    throw new Error(formatRpcError(result?.message || result?.error || "后端 Introduction 任务未被接受。"));
+  }
+  return result || {};
+}
+
+export async function uploadIntroductionReferences(introJobId: string, files: File[]): Promise<Record<string, unknown>> {
+  const directUploadUrl = process.env.NEXT_PUBLIC_DIRECT_INTRODUCTION_REFERENCES_UPLOAD_URL;
+  const formData = new FormData();
+  formData.append("intro_job_id", introJobId);
+  for (const file of files) {
+    formData.append("files", file, file.name || "reference.pdf");
+  }
+
+  const response = await fetch(directUploadUrl || "/api/introduction-references-upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  const result = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) {
+    throw new Error(formatRpcError(result?.message || result?.error || `HTTP ${response.status}`));
+  }
+  const status = String(result?.status || "");
+  if (!["accepted", "queued", "processing", "ok"].includes(status)) {
+    throw new Error(formatRpcError(result?.message || result?.error || "后端参考论文上传任务未被接受。"));
+  }
+  return result || {};
+}
+
+export async function selectIntroductionInnovations(introJobId: string, selectedInnovations: Array<Record<string, unknown>>): Promise<Record<string, unknown>> {
+  return backendRpc<Record<string, unknown>>("select_introduction_innovations", {
+    intro_job_id: introJobId,
+    selected_innovations: selectedInnovations,
+  });
 }
