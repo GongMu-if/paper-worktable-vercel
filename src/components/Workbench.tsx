@@ -119,6 +119,213 @@ function innovationCandidateTitle(item: Record<string, unknown>, index: number):
   return String(title || `创新点候选 ${index + 1}`);
 }
 
+const INTRO_FIELD_LABELS: Record<string, string> = {
+  seed_problem_card: "研究问题卡",
+  problem_card: "研究问题卡",
+  search_query_pack: "搜索关键词与筛选要求",
+  search_results_markdown: "搜索结果",
+  literature_cards: "参考论文分析卡片",
+  gap_report: "领域痛点与普遍不足",
+  innovation_candidates: "创新点候选",
+  innovation_validation_report: "创新点验证报告",
+  intro_plan: "Introduction 大纲",
+  intro_draft: "Introduction 初稿",
+  intro_review_report: "Reviewer 审查报告",
+  final_introduction: "最终 Introduction",
+
+  task_signature: "任务签名",
+  task_name: "任务名称",
+  task_family: "任务族",
+  research_domain: "研究领域",
+  research_object: "研究对象",
+  target_entity: "目标实体",
+  target_entity_scope: "目标实体范围",
+  task_granularity: "任务粒度",
+  task_goal: "任务目标",
+  input_space: "输入空间",
+  output_space: "输出空间",
+  evaluation_target: "评价目标",
+
+  problem_boundary: "问题边界",
+  same_problem_must_have: "同问题必须满足",
+  same_problem_should_have: "同问题最好满足",
+  full_same_problem_must_have: "完全同问题必须满足",
+  same_task_family_but_not_same_problem: "同任务族但非同问题",
+  related_but_not_same: "相关但不同问题",
+  must_exclude: "必须排除",
+  must_exclude_as_main_reference: "不能作为主参考",
+
+  method_signature: "方法特征",
+  seed_method_route: "种子论文方法路线",
+  model_scope: "模型适用范围",
+  learning_paradigm: "学习范式",
+  key_modules: "关键模块",
+  data_dependency: "数据依赖",
+  training_objective: "训练目标",
+  special_designs: "特殊设计",
+
+  reference_search_intent: "参考论文检索意图",
+  desired_reference_type: "期望参考论文类型",
+  preferred_method_scope: "优先方法范围",
+  main_reference_must_match: "主参考必须匹配",
+  must_compare_against: "应优先对比的路线",
+  baseline_or_background_only: "仅作基线或背景",
+  use_as_background_only: "仅作背景参考",
+  do_not_use_as_main_reference: "不能作为主参考",
+
+  gap_signature: "缺口特征",
+  claimed_contributions: "作者声称贡献",
+  seed_limitations: "种子论文局限",
+  possible_gaps: "可能研究缺口",
+  generalizable_gap_keywords: "可泛化缺口关键词",
+  innovation_risk_keywords: "创新点风险关键词",
+
+  search_keywords_hint: "检索关键词提示",
+  exact_task_queries: "精确任务检索词",
+  task_synonym_queries: "任务同义检索词",
+  object_synonym_queries: "研究对象同义检索词",
+  granularity_queries: "粒度/输入输出检索词",
+  method_scope_queries: "方法范围检索词",
+  benchmark_or_dataset_queries: "数据集/基准检索词",
+
+  search_topic: "检索主题",
+  search_queries: "检索词",
+  requirements: "筛选要求",
+  preprint_rule: "预印本规则",
+  same_problem_criteria: "同问题判断标准",
+  preferred_reference_profile: "优先参考论文类型",
+  search_coverage_plan: "检索覆盖计划",
+  avoid: "排除方向",
+
+  title: "标题",
+  name: "名称",
+  innovation_name: "创新点名称",
+  description: "具体说明",
+  rationale: "提出依据",
+  novelty: "新颖性",
+  feasibility: "可实现性",
+  risk: "风险",
+  novelty_risk: "新颖性风险",
+  implementation_path: "实现路径",
+  expected_contribution: "预期贡献",
+  relation_to_gap: "对应痛点",
+  evidence: "依据",
+  reason: "原因",
+  confidence: "置信度",
+  status: "状态",
+  summary: "摘要",
+};
+
+const INTRO_HIDDEN_FIELDS = new Set([
+  "legacy_flat_fields",
+  "raw",
+  "raw_output",
+  "raw_json",
+]);
+
+function introLabel(key: string): string {
+  return INTRO_FIELD_LABELS[key] || key.replace(/_/g, " ");
+}
+
+function stripIntroNoise(text: string): string {
+  let value = String(text || "").trim();
+  if (!value) return "";
+
+  value = value
+    .replace(/<INTRO_[A-Z_]+>/g, "")
+    .replace(/<\/INTRO_[A-Z_]+>/g, "")
+    .replace(/<INTRO_[A-Z_]+\/>/g, "");
+
+  value = value.replace(
+    /^(好的[，,]\s*)?作为\s*(Gap Mining Agent|Search Query Planner Agent|Seed Paper Reader Agent|Reviewer Agent|Writer Agent|Revision Agent|Innovation Generator Agent|Innovation Validator Agent)[，,。\s]*/i,
+    "",
+  );
+
+  value = value.replace(
+    /^我已?经?综合研究问题卡和参考论文卡片[，,。\s]*/i,
+    "",
+  );
+
+  value = value.replace(
+    /^以下是(分析报告|结果|输出|整理后的内容)[：:\s]*/i,
+    "",
+  );
+
+  return value.trim();
+}
+
+function formatIntroPrimitive(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return stripIntroNoise(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function renderIntroValueAsMarkdown(value: unknown, depth = 0): string {
+  if (value == null) return "暂无内容。";
+
+  if (typeof value === "string") {
+    return stripIntroNoise(value) || "暂无内容。";
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.length) return "暂无内容。";
+
+    return value
+      .map((item, index) => {
+        if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+          return `${index + 1}. ${formatIntroPrimitive(item)}`;
+        }
+
+        if (item && typeof item === "object") {
+          return `### ${index + 1}. ${innovationCandidateTitle(item as Record<string, unknown>, index)}\n\n${renderIntroValueAsMarkdown(item, depth + 1)}`;
+        }
+
+        return `${index + 1}. ${String(item)}`;
+      })
+      .join("\n\n");
+  }
+
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const lines: string[] = [];
+
+    for (const [key, raw] of Object.entries(obj)) {
+      if (INTRO_HIDDEN_FIELDS.has(key)) continue;
+      if (raw == null || raw === "" || (Array.isArray(raw) && raw.length === 0)) continue;
+
+      const label = introLabel(key);
+
+      if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
+        const text = formatIntroPrimitive(raw);
+        if (text) lines.push(`**${label}：** ${text}`);
+      } else if (Array.isArray(raw)) {
+        const body = raw.length
+          ? raw.map((item, index) => {
+              if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+                return `${index + 1}. ${formatIntroPrimitive(item)}`;
+              }
+              return `${index + 1}. ${renderIntroValueAsMarkdown(item, depth + 1)}`;
+            }).join("\n")
+          : "暂无内容。";
+        lines.push(`**${label}：**\n\n${body}`);
+      } else if (typeof raw === "object") {
+        const heading = depth <= 0 ? "##" : "###";
+        const nested = renderIntroValueAsMarkdown(raw, depth + 1);
+        if (nested && nested !== "暂无内容。") lines.push(`${heading} ${label}\n\n${nested}`);
+      }
+    }
+
+    return lines.join("\n\n") || "暂无内容。";
+  }
+
+  return String(value);
+}
+
 function reportHistoryLabel(meta: ReportMeta): string {
   const displayName = meta.source_name || meta.report_title || "未命名论文";
   const shortName = shorten(displayName, 18);
@@ -1465,7 +1672,7 @@ export function Workbench() {
         ) : null}
 
         {view.type === "introduction" ? (
-          <div className="card stack">
+          <div className="card stack intro-result-view">
             <h2>Introduction 写作任务</h2>
             {selectedIntroRecord ? (
               <>
@@ -1475,15 +1682,15 @@ export function Workbench() {
 
                 {selectedIntroRecord.problem_card ? (
                   <details className="card-soft" open>
-                    <summary>研究问题卡 seed_problem_card</summary>
-                    <MarkdownReport markdown={renderValueAsMarkdown(selectedIntroRecord.problem_card)} normalize={false} />
+                    <summary>研究问题卡</summary>
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.problem_card)} normalize={false} />
                   </details>
                 ) : null}
 
                 {selectedIntroRecord.search_query_pack ? (
                   <details className="card-soft">
                     <summary>搜索关键词与筛选要求</summary>
-                    <MarkdownReport markdown={renderValueAsMarkdown(selectedIntroRecord.search_query_pack)} normalize={false} />
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.search_query_pack)} normalize={false} />
                   </details>
                 ) : null}
 
@@ -1527,14 +1734,14 @@ export function Workbench() {
                 {selectedIntroRecord.literature_cards?.length ? (
                   <details className="card-soft">
                     <summary>参考论文轻量精读卡片</summary>
-                    <MarkdownReport markdown={renderValueAsMarkdown(selectedIntroRecord.literature_cards)} normalize={false} />
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.literature_cards)} normalize={false} />
                   </details>
                 ) : null}
 
                 {selectedIntroRecord.gap_report ? (
                   <details className="card-soft" open>
-                    <summary>领域痛点与普遍不足 gap_report</summary>
-                    <MarkdownReport markdown={renderValueAsMarkdown(selectedIntroRecord.gap_report)} normalize={false} />
+                    <summary>领域痛点与普遍不足</summary>
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.gap_report)} normalize={false} />
                   </details>
                 ) : null}
 
@@ -1559,7 +1766,7 @@ export function Workbench() {
                             }}
                           />{" "}
                           <strong>{innovationCandidateTitle(item, index)}</strong>
-                          <MarkdownReport markdown={renderValueAsMarkdown(item)} normalize={false} />
+                          <MarkdownReport markdown={renderIntroValueAsMarkdown(item)} normalize={false} />
                         </label>
                       );
                     })}
@@ -1567,22 +1774,22 @@ export function Workbench() {
                   </div>
                 ) : selectedIntroRecord.innovation_candidates?.length ? (
                   <details className="card-soft">
-                    <summary>创新点候选 / 验证结果</summary>
-                    <MarkdownReport markdown={renderValueAsMarkdown(selectedIntroRecord.innovation_candidates)} normalize={false} />
+                    <summary>创新点候选</summary>
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.innovation_candidates)} normalize={false} />
                   </details>
                 ) : null}
 
                 {selectedIntroRecord.innovation_validation_report ? (
                   <details className="card-soft">
                     <summary>创新点验证报告</summary>
-                    <MarkdownReport markdown={renderValueAsMarkdown(selectedIntroRecord.innovation_validation_report)} normalize={false} />
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.innovation_validation_report)} normalize={false} />
                   </details>
                 ) : null}
 
                 {selectedIntroRecord.intro_plan ? (
                   <details className="card-soft">
                     <summary>Introduction 大纲</summary>
-                    <MarkdownReport markdown={renderValueAsMarkdown(selectedIntroRecord.intro_plan)} normalize={false} />
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.intro_plan)} normalize={false} />
                   </details>
                 ) : null}
 
@@ -1596,7 +1803,7 @@ export function Workbench() {
                 {selectedIntroRecord.intro_review_report ? (
                   <details className="card-soft">
                     <summary>Reviewer 审查报告</summary>
-                    <MarkdownReport markdown={renderValueAsMarkdown(selectedIntroRecord.intro_review_report)} normalize={false} />
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.intro_review_report)} normalize={false} />
                   </details>
                 ) : null}
 
