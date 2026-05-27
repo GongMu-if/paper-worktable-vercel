@@ -1229,8 +1229,18 @@ export function Workbench() {
       setMessage("正在上传参考论文 PDF，并继续 Introduction 写作流程……");
       await uploadIntroductionReferences(introJobId, introReferenceFiles);
       clearIntroReferenceFiles();
+      setSelectedIntroRecord((previous) =>
+        previous && previous.id === introJobId
+          ? {
+              ...previous,
+              status: "processing",
+              progress_text: "参考论文 PDF 已上传，正在继续 Introduction 写作流程……",
+            }
+          : previous,
+      );
       setActiveIntroJobId(introJobId);
       setCurrentIntroJobId(introJobId);
+      setMessage("参考论文 PDF 已上传，正在继续 Introduction 写作流程……");
       await refreshHistories(currentUser);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1503,6 +1513,9 @@ export function Workbench() {
 
   const currentSearchState = searches.find((item) => item.search_job_id === activeSearchJobId);
   const currentIntroState = introductions.find((item) => item.id === activeIntroJobId);
+  const selectedIntroStatus = (selectedIntroRecord?.status || "").toLowerCase();
+  const shouldShowIntroReferenceUpload = selectedIntroStatus === "waiting_reference_upload";
+  const shouldShowIntroInnovationSelection = selectedIntroStatus === "waiting_innovation_selection";
   const pendingRows = batchRows.filter((row) => ["queued", "processing"].includes((row.status || "").toLowerCase()));
   const selectedPendingReport = selectedReportMeta && ["queued", "processing"].includes((selectedReportMeta.status || "").toLowerCase());
 
@@ -1738,7 +1751,7 @@ export function Workbench() {
                 </div>
 
                 {selectedIntroRecord.problem_card ? (
-                  <details className="card-soft" open>
+                  <details className="card-soft">
                     <summary>研究问题卡</summary>
                     <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.problem_card)} normalize={false} />
                   </details>
@@ -1752,14 +1765,18 @@ export function Workbench() {
                 ) : null}
 
                 {selectedIntroRecord.search_results_markdown ? (
-                  <div className="card-soft stack">
-                    <h3>搜索结果</h3>
-                    <p className="small">请根据系统推荐结果自行下载 3-6 篇相关 PDF，并在下方上传。</p>
-                    <MarkdownReport markdown={selectedIntroRecord.search_results_markdown} normalize={false} />
-                  </div>
+                  <details className="card-soft" open={shouldShowIntroReferenceUpload}>
+                    <summary>搜索结果</summary>
+                    <div className="stack" style={{ marginTop: 12 }}>
+                      {shouldShowIntroReferenceUpload ? (
+                        <p className="small">请根据系统推荐结果自行下载 3-6 篇相关 PDF，并在下方上传。</p>
+                      ) : null}
+                      <MarkdownReport markdown={selectedIntroRecord.search_results_markdown} normalize={false} />
+                    </div>
+                  </details>
                 ) : null}
 
-                {(selectedIntroRecord.status || "").toLowerCase() === "waiting_reference_upload" ? (
+                {shouldShowIntroReferenceUpload ? (
                   <div className="card-soft stack">
                     <h3>上传参考论文 PDF</h3>
                     <p className="small">建议上传 3-6 篇与搜索结果高度相关的参考论文 PDF。上传后，后端会继续轻量精读这些论文并归纳领域痛点。</p>
@@ -1796,13 +1813,13 @@ export function Workbench() {
                 ) : null}
 
                 {selectedIntroRecord.gap_report ? (
-                  <details className="card-soft" open>
+                  <details className="card-soft">
                     <summary>领域痛点与普遍不足</summary>
                     <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.gap_report)} normalize={false} />
                   </details>
                 ) : null}
 
-                {(selectedIntroRecord.status || "").toLowerCase() === "waiting_innovation_selection" ? (
+                {shouldShowIntroInnovationSelection ? (
                   <div className="card-soft stack">
                     <h3>选择创新点候选</h3>
                     <p className="small">请选择你希望进入 Introduction 写作的创新点。建议选择 3 个；如果少于 3 个，也可以先提交。</p>
