@@ -740,7 +740,16 @@ export function Workbench() {
     setActiveSearchContext(null);
     setBatchRows([]);
     setReadyReports([]);
+    setActiveIntroJobId("");
+    setCurrentIntroJobId("");
+    setSelectedIntroRecord(null);
+    setSelectedIntroId(null);
+    setIntroReferenceFiles([]);
+    setSelectedInnovationIndexes([]);
     clearSelectedPdfFiles();
+    if (introReferenceInputRef.current) {
+      introReferenceInputRef.current.value = "";
+    }
     resetWorkspace();
     setAppState("IDLE");
     void refreshHistories(currentUser);
@@ -1245,7 +1254,7 @@ export function Workbench() {
         selectedIntroId={selectedIntroId}
         onRefresh={resetToInitialView}
         onLogout={logout}
-        onSelectWorkspace={openLatestActivity}
+        onSelectWorkspace={resetToInitialView}
         onSelectReport={loadReportView}
         onSelectSearch={loadSearchView}
         onSelectIntroduction={loadIntroductionView}
