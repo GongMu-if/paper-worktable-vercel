@@ -204,7 +204,9 @@ const INTRO_FIELD_LABELS: Record<string, string> = {
   rationale: "提出依据",
   novelty: "新颖性",
   feasibility: "可实现性",
+  feasibility_level: "可实现性等级",
   risk: "风险",
+  risk_level: "风险等级",
   novelty_risk: "新颖性风险",
   implementation_path: "实现路径",
   expected_contribution: "预期贡献",
@@ -214,9 +216,42 @@ const INTRO_FIELD_LABELS: Record<string, string> = {
   confidence: "置信度",
   status: "状态",
   summary: "摘要",
+  priority: "优先级",
+  main_risk: "主要风险",
+
+  core_idea: "核心思路",
+  "core idea": "核心思路",
+  target_gap: "针对痛点",
+  "target gap": "针对痛点",
+  technical_route: "技术路线",
+  "technical route": "技术路线",
+  needed_experiments: "所需实验",
+  "needed experiments": "所需实验",
+  reviewer_attack_points: "审稿人可能攻击点",
+  "reviewer attack points": "审稿人可能攻击点",
+  difference_from_existing_work: "与现有工作的区别",
+  "difference from existing work": "与现有工作的区别",
+  recommended_intro_positioning: "引言中的推荐定位",
+  "recommended intro positioning": "引言中的推荐定位",
+  complementary_value: "互补价值",
+  "complementary value": "互补价值",
+  fusion_strategy: "融合策略",
+  "fusion strategy": "融合策略",
+  integration_strategy: "融合策略",
+  "integration strategy": "融合策略",
+  innovation_summary: "创新点概述",
+  "innovation summary": "创新点概述",
+  experiment_design: "实验设计",
+  "experiment design": "实验设计",
+  expected_results: "预期结果",
+  "expected results": "预期结果",
 };
 
 const INTRO_HIDDEN_FIELDS = new Set([
+  "id",
+  "innovation_id",
+  "candidate_id",
+  "paper_id",
   "legacy_flat_fields",
   "raw",
   "raw_output",
@@ -254,9 +289,31 @@ function stripIntroNoise(text: string): string {
   return value.trim();
 }
 
-function formatIntroPrimitive(value: unknown): string {
+function normalizeIntroDisplayValue(key: string, value: string): string {
+  const raw = String(value || "").trim();
+  const lower = raw.toLowerCase();
+  const normalizedKey = String(key || "").toLowerCase().replace(/\s+/g, "_");
+
+  if (["high", "medium", "low"].includes(lower)) {
+    if (["feasibility", "feasibility_level", "priority", "confidence"].includes(normalizedKey)) {
+      if (lower === "high") return "高";
+      if (lower === "medium") return "中";
+      if (lower === "low") return "低";
+    }
+
+    if (["risk", "risk_level", "novelty_risk", "main_risk"].includes(normalizedKey)) {
+      if (lower === "high") return "高风险";
+      if (lower === "medium") return "中风险";
+      if (lower === "low") return "低风险";
+    }
+  }
+
+  return raw;
+}
+
+function formatIntroPrimitive(value: unknown, key = ""): string {
   if (value == null) return "";
-  if (typeof value === "string") return stripIntroNoise(value);
+  if (typeof value === "string") return normalizeIntroDisplayValue(key, stripIntroNoise(value));
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return "";
 }
@@ -301,13 +358,13 @@ function renderIntroValueAsMarkdown(value: unknown, depth = 0): string {
       const label = introLabel(key);
 
       if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
-        const text = formatIntroPrimitive(raw);
+        const text = formatIntroPrimitive(raw, key);
         if (text) lines.push(`**${label}：** ${text}`);
       } else if (Array.isArray(raw)) {
         const body = raw.length
           ? raw.map((item, index) => {
               if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
-                return `${index + 1}. ${formatIntroPrimitive(item)}`;
+                return `${index + 1}. ${formatIntroPrimitive(item, key)}`;
               }
               return `${index + 1}. ${renderIntroValueAsMarkdown(item, depth + 1)}`;
             }).join("\n")
