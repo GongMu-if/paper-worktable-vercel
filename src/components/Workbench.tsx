@@ -123,6 +123,21 @@ const INTRO_FIELD_LABELS: Record<string, string> = {
   seed_problem_card: "研究问题卡",
   problem_card: "研究问题卡",
   search_query_pack: "搜索关键词与筛选要求",
+  seed_citation_pack: "种子论文引用文献线索",
+  seed_citation_candidates: "引用候选",
+  same_problem_citation_names: "同问题引用名称",
+  exact_followup_queries: "精确追踪检索词",
+  search_expansion_keywords: "扩展检索关键词",
+  citation_exact_queries: "引用文献精确检索词",
+  must_find_or_explain: "必须检索或说明",
+  method_or_paper_name: "方法或论文名称",
+  citation_marker: "引用标记",
+  author_year: "作者年份",
+  title_hint: "标题线索",
+  evidence_sentence: "证据句",
+  relation_to_seed_problem: "与种子问题关系",
+  reference_role: "参考角色",
+  should_search_exactly: "是否精确检索",
   search_results_markdown: "搜索结果",
   literature_cards: "参考论文分析卡片",
   gap_report: "领域痛点与普遍不足",
@@ -381,6 +396,35 @@ function renderIntroValueAsMarkdown(value: unknown, depth = 0): string {
   }
 
   return String(value);
+}
+
+function introValueIsPresent(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+}
+
+function getIntroSeedCitationPack(record: IntroductionRecord | null): unknown {
+  if (!record) return null;
+  const source = record as unknown as Record<string, unknown>;
+  const problemCard = source.problem_card as Record<string, unknown> | undefined;
+  if (problemCard && introValueIsPresent(problemCard.seed_citation_pack)) {
+    return problemCard.seed_citation_pack;
+  }
+
+  const searchQueryPack = source.search_query_pack as Record<string, unknown> | undefined;
+  if (searchQueryPack && introValueIsPresent(searchQueryPack.seed_citation_pack)) {
+    return searchQueryPack.seed_citation_pack;
+  }
+
+  const rawPayload = source.raw_payload as Record<string, unknown> | undefined;
+  if (rawPayload && introValueIsPresent(rawPayload.intro_seed_citation_pack)) {
+    return rawPayload.intro_seed_citation_pack;
+  }
+
+  return null;
 }
 
 function reportHistoryLabel(meta: ReportMeta): string {
@@ -1516,6 +1560,7 @@ export function Workbench() {
   const selectedIntroStatus = (selectedIntroRecord?.status || "").toLowerCase();
   const shouldShowIntroReferenceUpload = selectedIntroStatus === "waiting_reference_upload";
   const shouldShowIntroInnovationSelection = selectedIntroStatus === "waiting_innovation_selection";
+  const introSeedCitationPack = getIntroSeedCitationPack(selectedIntroRecord);
   const pendingRows = batchRows.filter((row) => ["queued", "processing"].includes((row.status || "").toLowerCase()));
   const selectedPendingReport = selectedReportMeta && ["queued", "processing"].includes((selectedReportMeta.status || "").toLowerCase());
 
@@ -1754,6 +1799,13 @@ export function Workbench() {
                   <details className="card-soft">
                     <summary>研究问题卡</summary>
                     <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.problem_card)} normalize={false} />
+                  </details>
+                ) : null}
+
+                {introSeedCitationPack ? (
+                  <details className="card-soft" open={shouldShowIntroReferenceUpload}>
+                    <summary>种子论文引用文献线索</summary>
+                    <MarkdownReport markdown={renderIntroValueAsMarkdown(introSeedCitationPack)} normalize={false} />
                   </details>
                 ) : null}
 
