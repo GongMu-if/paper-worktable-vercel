@@ -1229,15 +1229,6 @@ export function Workbench() {
       setMessage("正在上传参考论文 PDF，并继续 Introduction 写作流程……");
       await uploadIntroductionReferences(introJobId, introReferenceFiles);
       clearIntroReferenceFiles();
-      setSelectedIntroRecord((previous) => previous
-        ? {
-            ...previous,
-            status: "processing",
-            progress_text: "参考论文 PDF 已上传，正在继续 Introduction 写作流程……",
-            reference_papers: introReferenceFiles.map((file) => ({ name: file.name, size: file.size })),
-          }
-        : previous
-      );
       setActiveIntroJobId(introJobId);
       setCurrentIntroJobId(introJobId);
       await refreshHistories(currentUser);
@@ -1514,15 +1505,6 @@ export function Workbench() {
   const currentIntroState = introductions.find((item) => item.id === activeIntroJobId);
   const pendingRows = batchRows.filter((row) => ["queued", "processing"].includes((row.status || "").toLowerCase()));
   const selectedPendingReport = selectedReportMeta && ["queued", "processing"].includes((selectedReportMeta.status || "").toLowerCase());
-  const selectedIntroStatus = (selectedIntroRecord?.status || "").toLowerCase();
-  const selectedIntroHasUploadedReferences = Boolean(
-    (selectedIntroRecord?.reference_papers || []).length ||
-    (selectedIntroRecord?.literature_cards || []).length ||
-    String(selectedIntroRecord?.gap_report || "").trim() ||
-    String(selectedIntroRecord?.intro_plan || "").trim() ||
-    String(selectedIntroRecord?.final_introduction || "").trim()
-  );
-  const shouldShowIntroReferenceUpload = selectedIntroStatus === "waiting_reference_upload" && !selectedIntroHasUploadedReferences;
 
   return (
     <div className="app-shell" key={usernameKey}>
@@ -1756,7 +1738,7 @@ export function Workbench() {
                 </div>
 
                 {selectedIntroRecord.problem_card ? (
-                  <details className="card-soft">
+                  <details className="card-soft" open>
                     <summary>研究问题卡</summary>
                     <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.problem_card)} normalize={false} />
                   </details>
@@ -1770,14 +1752,14 @@ export function Workbench() {
                 ) : null}
 
                 {selectedIntroRecord.search_results_markdown ? (
-                  <details className="card-soft" open={shouldShowIntroReferenceUpload}>
-                    <summary>搜索结果</summary>
-                    {shouldShowIntroReferenceUpload ? <p className="small">请根据系统推荐结果自行下载 3-6 篇相关 PDF，并在下方上传。</p> : null}
+                  <div className="card-soft stack">
+                    <h3>搜索结果</h3>
+                    <p className="small">请根据系统推荐结果自行下载 3-6 篇相关 PDF，并在下方上传。</p>
                     <MarkdownReport markdown={selectedIntroRecord.search_results_markdown} normalize={false} />
-                  </details>
+                  </div>
                 ) : null}
 
-                {shouldShowIntroReferenceUpload ? (
+                {(selectedIntroRecord.status || "").toLowerCase() === "waiting_reference_upload" ? (
                   <div className="card-soft stack">
                     <h3>上传参考论文 PDF</h3>
                     <p className="small">建议上传 3-6 篇与搜索结果高度相关的参考论文 PDF。上传后，后端会继续轻量精读这些论文并归纳领域痛点。</p>
@@ -1814,7 +1796,7 @@ export function Workbench() {
                 ) : null}
 
                 {selectedIntroRecord.gap_report ? (
-                  <details className="card-soft">
+                  <details className="card-soft" open>
                     <summary>领域痛点与普遍不足</summary>
                     <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.gap_report)} normalize={false} />
                   </details>
