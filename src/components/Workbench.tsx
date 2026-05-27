@@ -122,7 +122,6 @@ function innovationCandidateTitle(item: Record<string, unknown>, index: number):
 const INTRO_FIELD_LABELS: Record<string, string> = {
   seed_problem_card: "研究问题卡",
   problem_card: "研究问题卡",
-  seed_citation_pack: "种子论文引用文献线索",
   search_query_pack: "搜索关键词与筛选要求",
   search_results_markdown: "搜索结果",
   literature_cards: "参考论文分析卡片",
