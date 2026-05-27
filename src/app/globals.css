@@ -500,6 +500,32 @@ p {
   grid-column: 1 / -1;
 }
 
+
+.intro-result-view details > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.intro-result-view .report-markdown pre {
+  background: #f8fafc;
+  color: #111827;
+  border: 1px solid var(--border);
+}
+
+.intro-result-view .report-markdown pre code {
+  color: inherit;
+}
+
+.intro-result-view .report-markdown h2,
+.intro-result-view .report-markdown h3 {
+  margin-top: 1rem;
+  margin-bottom: 0.45rem;
+}
+
+.intro-result-view .report-markdown strong {
+  color: #111827;
+}
+
 .selected-file-list {
   display: flex;
   flex-direction: column;
