@@ -20,7 +20,6 @@ import {
   loadUserSearchRecord,
   markPaperSearchJobSuperseded,
   registerUser,
-  selectIntroductionInnovations,
   submitAnalysisJob,
   submitIntroductionJob,
   submitPaperSearchJob,
@@ -37,8 +36,6 @@ const DEFAULT_PREPRINT_RULE = "排除预印本 (仅限正规期刊/会议)";
 const MAX_ANALYSIS_SUBMIT_CONCURRENCY = 1; // 原 PDF 解析 API 不稳定时保持 1；确认服务支持后可改为 2。
 
 type AppState = "IDLE" | "SEARCH_RUNNING" | "WAITING_FEEDBACK" | "COMPLETED";
-type IntroSourceMode = "pdf" | "manual";
-type IntroInnovationMode = "existing" | "generate";
 type AuthMode = "login" | "register";
 type MainView =
   | { type: "workspace" }
@@ -704,7 +701,7 @@ function WorkspaceIntro() {
         </div>
         <div className="card-soft">
           <h3>Introduction 写作</h3>
-          <p className="muted">根据种子论文或手动研究问题，检索同问题文献、归纳痛点、处理创新点，并生成 Introduction。</p>
+          <p className="muted">必须上传种子论文并填写已有创新点，系统检索 3 篇同问题论文、归纳痛点，并直接生成 Introduction。</p>
         </div>
       </div>
     </div>
@@ -742,14 +739,7 @@ export function Workbench() {
   const [selectedSearchRecord, setSelectedSearchRecord] = useState<SearchRecord | null>(null);
   const [newFeedback, setNewFeedback] = useState("");
   const [activeSearchContext, setActiveSearchContext] = useState<SearchContext | null>(null);
-  const [introSourceMode, setIntroSourceMode] = useState<IntroSourceMode>("pdf");
-  const [introInnovationMode, setIntroInnovationMode] = useState<IntroInnovationMode>("existing");
   const [introSeedPdf, setIntroSeedPdf] = useState<File | null>(null);
-  const [introManualProblemText, setIntroManualProblemText] = useState("");
-  const [introTaskGoal, setIntroTaskGoal] = useState("");
-  const [introTaskGranularity, setIntroTaskGranularity] = useState("");
-  const [introResearchObject, setIntroResearchObject] = useState("");
-  const [introInputOutput, setIntroInputOutput] = useState("");
   const [introInnovationText, setIntroInnovationText] = useState("");
   const [introTargetLanguage, setIntroTargetLanguage] = useState("中文");
   const [introTargetWords, setIntroTargetWords] = useState("1000");
@@ -757,7 +747,6 @@ export function Workbench() {
   const [currentIntroJobId, setCurrentIntroJobId] = useState("");
   const [selectedIntroRecord, setSelectedIntroRecord] = useState<IntroductionRecord | null>(null);
   const [introReferenceFiles, setIntroReferenceFiles] = useState<File[]>([]);
-  const [selectedInnovationIndexes, setSelectedInnovationIndexes] = useState<number[]>([]);
   const [analysisSubmitting, setAnalysisSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const introSeedInputRef = useRef<HTMLInputElement | null>(null);
@@ -907,14 +896,7 @@ export function Workbench() {
     setSelectedSearchRecord(null);
     setNewFeedback("");
     setActiveSearchContext(null);
-    setIntroSourceMode("pdf");
-    setIntroInnovationMode("existing");
     setIntroSeedPdf(null);
-    setIntroManualProblemText("");
-    setIntroTaskGoal("");
-    setIntroTaskGranularity("");
-    setIntroResearchObject("");
-    setIntroInputOutput("");
     setIntroInnovationText("");
     setIntroTargetLanguage("中文");
     setIntroTargetWords("1000");
@@ -922,7 +904,6 @@ export function Workbench() {
     setCurrentIntroJobId("");
     setSelectedIntroRecord(null);
     setIntroReferenceFiles([]);
-    setSelectedInnovationIndexes([]);
     clearSelectedPdfFiles();
   }
 
@@ -1039,7 +1020,6 @@ export function Workbench() {
     setSelectedIntroRecord(null);
     setSelectedIntroId(null);
     setIntroReferenceFiles([]);
-    setSelectedInnovationIndexes([]);
     clearSelectedPdfFiles();
     if (introReferenceInputRef.current) {
       introReferenceInputRef.current.value = "";
@@ -1157,43 +1137,36 @@ export function Workbench() {
     setError("");
     setMessage("");
 
-    if (introSourceMode === "pdf" && !introSeedPdf) {
-      setError("请选择一篇种子论文 PDF，或切换为手动填写研究问题。");
+    if (!introSeedPdf) {
+      setError("Introduction 写作必须上传一篇种子论文 PDF。");
       return;
     }
 
-    if (introSourceMode === "manual" && !introManualProblemText.trim() && !introTaskGoal.trim() && !introTaskGranularity.trim()) {
-      setError("没有种子论文 PDF 时，请至少填写研究问题、任务目标或任务粒度。");
-      return;
-    }
-
-    if (introInnovationMode === "existing" && !introInnovationText.trim()) {
-      setError("选择已有创新点时，请填写你的创新点内容。");
+    if (!introInnovationText.trim()) {
+      setError("Introduction 写作必须填写你的已有创新点。");
       return;
     }
 
     try {
       resetWorkspace();
-      setMessage("正在提交 Introduction 写作任务，并交由统一 Director 调度……");
+      setMessage("正在提交 Introduction 写作任务……");
 
       const result = await submitIntroductionJob(
         {
           username: currentUser,
-          title: introSourceMode === "pdf"
-            ? `Introduction 写作：${introSeedPdf?.name || "种子论文"}`
-            : `Introduction 写作：${shorten(introManualProblemText || introTaskGoal || "手动研究问题", 30)}`,
-          hasSeedPdf: introSourceMode === "pdf",
-          manualProblemText: introManualProblemText,
-          taskGoal: introTaskGoal,
-          taskGranularity: introTaskGranularity,
-          researchObject: introResearchObject,
-          inputOutput: introInputOutput,
-          hasUserInnovation: introInnovationMode === "existing",
+          title: `Introduction 写作：${introSeedPdf.name || "种子论文"}`,
+          hasSeedPdf: true,
+          manualProblemText: "",
+          taskGoal: "",
+          taskGranularity: "",
+          researchObject: "",
+          inputOutput: "",
+          hasUserInnovation: true,
           userInnovationText: introInnovationText,
           targetLanguage: introTargetLanguage,
           targetWords: introTargetWords,
         },
-        introSourceMode === "pdf" ? introSeedPdf : null,
+        introSeedPdf,
       );
 
       const introJobId = String(result.job_id || result.id || "");
@@ -1205,7 +1178,7 @@ export function Workbench() {
       setCurrentIntroJobId(introJobId);
       setSelectedIntroId(introJobId);
       setView({ type: "introduction", introJobId });
-      setMessage("Introduction 写作任务已提交。页面会自动轮询状态；搜索完成后会提示你上传 3-6 篇参考论文 PDF。");
+      setMessage("Introduction 写作任务已提交。系统会先搜索 3 篇同研究问题论文；搜索完成后请下载并上传这 3 篇参考论文 PDF。");
       clearIntroSeedPdf();
       clearIntroReferenceFiles();
       await refreshHistories(currentUser);
@@ -1221,7 +1194,6 @@ export function Workbench() {
     setSelectedSearchId(null);
     setView({ type: "introduction", introJobId });
     setSelectedIntroRecord(null);
-    setSelectedInnovationIndexes([]);
     try {
       const record = await loadUserIntroductionRecord(currentUser, introJobId);
       if (!record) {
@@ -1245,12 +1217,8 @@ export function Workbench() {
       setError("缺少 Introduction 任务 ID，无法上传参考论文。");
       return;
     }
-    if (introReferenceFiles.length < 1) {
-      setError("请先选择 3-6 篇参考论文 PDF。");
-      return;
-    }
-    if (introReferenceFiles.length > 6) {
-      setError("参考论文 PDF 最多上传 6 篇。");
+    if (introReferenceFiles.length !== 3) {
+      setError("请一次选择并上传 3 篇同研究问题参考论文 PDF。");
       return;
     }
 
@@ -1277,34 +1245,7 @@ export function Workbench() {
     }
   }
 
-  async function submitSelectedInnovations() {
-    const introJobId = selectedIntroRecord?.id || currentIntroJobId || selectedIntroId || "";
-    const candidates = selectedIntroRecord?.innovation_candidates || [];
-    const selected = selectedInnovationIndexes
-      .map((index) => candidates[index])
-      .filter(Boolean);
 
-    if (!introJobId) {
-      setError("缺少 Introduction 任务 ID，无法提交创新点选择。");
-      return;
-    }
-    if (!selected.length) {
-      setError("请至少选择一个创新点。");
-      return;
-    }
-
-    try {
-      setError("");
-      setMessage("正在提交已选择的创新点，并继续生成 Introduction……");
-      await selectIntroductionInnovations(introJobId, selected);
-      setSelectedInnovationIndexes([]);
-      setActiveIntroJobId(introJobId);
-      setCurrentIntroJobId(introJobId);
-      await refreshHistories(currentUser);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
 
   async function loadReportView(reportId: string) {
     setError("");
@@ -1557,7 +1498,6 @@ export function Workbench() {
     selectedIntroRecord?.final_introduction
   );
   const shouldShowIntroReferenceUpload = selectedIntroStatus === "waiting_reference_upload" && !selectedIntroHasUploadedReferences;
-  const shouldShowIntroInnovationSelection = selectedIntroStatus === "waiting_innovation_selection";
   const selectedIntroSeedCitationPack = extractIntroSeedCitationPack(selectedIntroRecord);
   const pendingRows = batchRows.filter((row) => ["queued", "processing"].includes((row.status || "").toLowerCase()));
   const selectedPendingReport = selectedReportMeta && ["queued", "processing"].includes((selectedReportMeta.status || "").toLowerCase());
@@ -1630,66 +1570,37 @@ export function Workbench() {
 
           <div className="card stack task-card">
             <h2>Introduction 写作工作台</h2>
-            <p className="muted">上传种子论文或手动填写研究问题，系统会检索同问题文献、等待你上传参考论文，并生成 Introduction。</p>
+            <p className="muted">必须上传种子论文 PDF，并填写你已有的创新点。系统会先搜索 3 篇同研究问题论文，等待你上传这 3 篇 PDF 后，归纳普遍痛点并直接生成最终 Introduction。</p>
 
-            <div className="tabs">
-              <button className={`tab ${introSourceMode === "pdf" ? "active" : ""}`} type="button" onClick={() => setIntroSourceMode("pdf")}>上传种子论文 PDF</button>
-              <button className={`tab ${introSourceMode === "manual" ? "active" : ""}`} type="button" onClick={() => setIntroSourceMode("manual")}>手动填写研究问题</button>
+            <div className="stack-sm">
+              <label className="small">种子论文 PDF（必填）</label>
+              <input
+                ref={introSeedInputRef}
+                className="file-input"
+                type="file"
+                accept="application/pdf"
+                onChange={(event) => {
+                  const file = (event.target.files?.[0] || null) as File | null;
+                  if (file && !(file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+                    setError("种子论文只能上传 PDF 文件。");
+                    clearIntroSeedPdf();
+                    return;
+                  }
+                  setIntroSeedPdf(file);
+                }}
+              />
+              {introSeedPdf ? (
+                <div className="selected-file-item">
+                  <span className="selected-file-name">{introSeedPdf.name}</span>
+                  <button className="button secondary tiny" type="button" onClick={clearIntroSeedPdf}>删除</button>
+                </div>
+              ) : <p className="small">系统会重点读取 Abstract / Introduction / Related Work / Discussion / Conclusion / Limitations。</p>}
             </div>
 
-            {introSourceMode === "pdf" ? (
-              <div className="stack-sm">
-                <label className="small">种子论文 PDF</label>
-                <input
-                  ref={introSeedInputRef}
-                  className="file-input"
-                  type="file"
-                  accept="application/pdf"
-                  onChange={(event) => {
-                    const file = (event.target.files?.[0] || null) as File | null;
-                    if (file && !(file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
-                      setError("种子论文只能上传 PDF 文件。");
-                      clearIntroSeedPdf();
-                      return;
-                    }
-                    setIntroSeedPdf(file);
-                  }}
-                />
-                {introSeedPdf ? (
-                  <div className="selected-file-item">
-                    <span className="selected-file-name">{introSeedPdf.name}</span>
-                    <button className="button secondary tiny" type="button" onClick={clearIntroSeedPdf}>删除</button>
-                  </div>
-                ) : <p className="small">系统会重点读取 Abstract / Introduction / Discussion / Conclusion / Limitations。</p>}
-              </div>
-            ) : (
-              <div className="stack-sm">
-                <label className="small">研究问题</label>
-                <textarea className="textarea" value={introManualProblemText} onChange={(event) => setIntroManualProblemText(event.target.value)} placeholder="例如：预测蛋白质序列中的核苷酸结合残基。" />
-                <label className="small">任务目标</label>
-                <input className="input" value={introTaskGoal} onChange={(event) => setIntroTaskGoal(event.target.value)} placeholder="例如：识别每个残基是否为结合位点" />
-                <label className="small">任务粒度</label>
-                <input className="input" value={introTaskGranularity} onChange={(event) => setIntroTaskGranularity(event.target.value)} placeholder="例如：残基级、序列级、端到端控制层面" />
-                <label className="small">研究对象 / 应用场景</label>
-                <input className="input" value={introResearchObject} onChange={(event) => setIntroResearchObject(event.target.value)} placeholder="例如：蛋白质序列中的结合残基" />
-                <label className="small">输入与输出</label>
-                <input className="input" value={introInputOutput} onChange={(event) => setIntroInputOutput(event.target.value)} placeholder="例如：输入蛋白质序列，输出残基级二分类结果" />
-              </div>
-            )}
-
-            <div className="tabs">
-              <button className={`tab ${introInnovationMode === "existing" ? "active" : ""}`} type="button" onClick={() => setIntroInnovationMode("existing")}>我已有创新点</button>
-              <button className={`tab ${introInnovationMode === "generate" ? "active" : ""}`} type="button" onClick={() => setIntroInnovationMode("generate")}>系统生成候选创新点</button>
+            <div className="stack-sm">
+              <label className="small">已有创新点（必填）</label>
+              <textarea className="textarea" value={introInnovationText} onChange={(event) => setIntroInnovationText(event.target.value)} placeholder="请列出你的创新点、方法想法或改进方向。" />
             </div>
-
-            {introInnovationMode === "existing" ? (
-              <div className="stack-sm">
-                <label className="small">已有创新点</label>
-                <textarea className="textarea" value={introInnovationText} onChange={(event) => setIntroInnovationText(event.target.value)} placeholder="请列出你的创新点、方法想法或改进方向。" />
-              </div>
-            ) : (
-              <p className="small">系统会在参考论文分析后生成多个候选创新点，并让你选择后继续写作。</p>
-            )}
 
             <div className="grid-2">
               <div className="stack-sm">
@@ -1705,7 +1616,7 @@ export function Workbench() {
               </div>
             </div>
 
-            <button className="button full" onClick={startIntroductionJob}>启动 Introduction 写作任务</button>
+            <button className="button full" disabled={!introSeedPdf || !introInnovationText.trim()} onClick={startIntroductionJob}>启动 Introduction 写作任务</button>
           </div>
         </section>
 
@@ -1721,7 +1632,7 @@ export function Workbench() {
           <div className="card stack">
             <h2>Introduction 写作运行中</h2>
             <div className="notice">{currentIntroState?.progress_text || "后台 Introduction 写作任务正在运行。页面会自动轮询状态。"}</div>
-            <p className="small">任务已由后台接管。关闭页面后仍可稍后重新登录查看结果。搜索完成后，系统会停在“等待上传参考论文”阶段。</p>
+            <p className="small">任务已由后台接管。关闭页面后仍可稍后重新登录查看结果。搜索完成后，系统会停在“等待上传 3 篇参考论文 PDF”阶段。</p>
           </div>
         ) : null}
 
@@ -1819,7 +1730,7 @@ export function Workbench() {
                     <summary>搜索结果</summary>
                     <div className="stack" style={{ marginTop: 12 }}>
                       {shouldShowIntroReferenceUpload ? (
-                        <p className="small">请根据系统推荐结果自行下载 3-6 篇相关 PDF，并在下方上传。</p>
+                        <p className="small">请根据系统推荐结果自行下载 3 篇同研究问题论文 PDF，并在下方上传。</p>
                       ) : null}
                       <MarkdownReport markdown={selectedIntroRecord.search_results_markdown} normalize={false} />
                     </div>
@@ -1829,7 +1740,7 @@ export function Workbench() {
                 {shouldShowIntroReferenceUpload ? (
                   <div className="card-soft stack">
                     <h3>上传参考论文 PDF</h3>
-                    <p className="small">建议上传 3-6 篇与搜索结果高度相关的参考论文 PDF。上传后，后端会继续轻量精读这些论文并归纳领域痛点。</p>
+                    <p className="small">请上传系统推荐的 3 篇同研究问题参考论文 PDF。上传后，后端会轻量精读这些论文、归纳普遍痛点，并直接生成最终 Introduction。</p>
                     <input
                       ref={introReferenceInputRef}
                       className="file-input"
@@ -1851,7 +1762,7 @@ export function Workbench() {
                     ) : (
                       <p className="small">尚未选择参考论文 PDF。</p>
                     )}
-                    <button className="button full" disabled={!introReferenceFiles.length} onClick={submitIntroReferencePapers}>上传参考论文并继续写作</button>
+                    <button className="button full" disabled={introReferenceFiles.length !== 3} onClick={submitIntroReferencePapers}>上传 3 篇参考论文并继续写作</button>
                   </div>
                 ) : null}
 
@@ -1866,68 +1777,6 @@ export function Workbench() {
                   <details className="card-soft">
                     <summary>领域痛点与普遍不足</summary>
                     <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.gap_report)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {shouldShowIntroInnovationSelection ? (
-                  <div className="card-soft stack">
-                    <h3>选择创新点候选</h3>
-                    <p className="small">请选择你希望进入 Introduction 写作的创新点。建议选择 3 个；如果少于 3 个，也可以先提交。</p>
-                    {(selectedIntroRecord.innovation_candidates || []).map((item, index) => {
-                      const checked = selectedInnovationIndexes.includes(index);
-                      return (
-                        <label key={index} className="card-soft" style={{ display: "block" }}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(event) => {
-                              setSelectedInnovationIndexes((previous) => {
-                                if (event.target.checked) {
-                                  return previous.includes(index) ? previous : [...previous, index].slice(0, 3);
-                                }
-                                return previous.filter((value) => value !== index);
-                              });
-                            }}
-                          />{" "}
-                          <strong>{innovationCandidateTitle(item, index)}</strong>
-                          <MarkdownReport markdown={renderIntroValueAsMarkdown(item)} normalize={false} />
-                        </label>
-                      );
-                    })}
-                    <button className="button full" disabled={!selectedInnovationIndexes.length} onClick={submitSelectedInnovations}>提交已选择创新点并继续写作</button>
-                  </div>
-                ) : selectedIntroRecord.innovation_candidates?.length ? (
-                  <details className="card-soft">
-                    <summary>创新点候选</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.innovation_candidates)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroRecord.innovation_validation_report ? (
-                  <details className="card-soft">
-                    <summary>创新点验证报告</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.innovation_validation_report)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroRecord.intro_plan ? (
-                  <details className="card-soft">
-                    <summary>Introduction 大纲</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.intro_plan)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroRecord.intro_draft ? (
-                  <details className="card-soft">
-                    <summary>Introduction 初稿 / 修订稿</summary>
-                    <MarkdownReport markdown={selectedIntroRecord.intro_draft} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroRecord.intro_review_report ? (
-                  <details className="card-soft">
-                    <summary>Reviewer 审查报告</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.intro_review_report)} normalize={false} />
                   </details>
                 ) : null}
 
