@@ -1544,7 +1544,19 @@ export function Workbench() {
   const currentSearchState = searches.find((item) => item.search_job_id === activeSearchJobId);
   const currentIntroState = introductions.find((item) => item.id === activeIntroJobId);
   const selectedIntroStatus = (selectedIntroRecord?.status || "").toLowerCase();
-  const shouldShowIntroReferenceUpload = selectedIntroStatus === "waiting_reference_upload";
+  const selectedIntroHasUploadedReferences = Boolean(
+    (selectedIntroRecord?.reference_papers || []).length ||
+    (selectedIntroRecord?.literature_cards || []).length ||
+    selectedIntroRecord?.gap_report ||
+    selectedIntroRecord?.innovation_validation_report ||
+    (selectedIntroRecord?.selected_innovations || []).length ||
+    selectedIntroRecord?.template_analysis ||
+    selectedIntroRecord?.intro_plan ||
+    selectedIntroRecord?.intro_draft ||
+    selectedIntroRecord?.intro_review_report ||
+    selectedIntroRecord?.final_introduction
+  );
+  const shouldShowIntroReferenceUpload = selectedIntroStatus === "waiting_reference_upload" && !selectedIntroHasUploadedReferences;
   const shouldShowIntroInnovationSelection = selectedIntroStatus === "waiting_innovation_selection";
   const selectedIntroSeedCitationPack = extractIntroSeedCitationPack(selectedIntroRecord);
   const pendingRows = batchRows.filter((row) => ["queued", "processing"].includes((row.status || "").toLowerCase()));
