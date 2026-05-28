@@ -10,25 +10,20 @@ import {
   getPublicBackendConfig,
   getUserJobState,
   getUserSearchJobState,
-  getUserIntroductionJobState,
   loadAgentLogs,
   loadUserReportIndex,
   loadUserReportRecord,
-  loadUserIntroductionIndex,
-  loadUserIntroductionRecord,
   loadUserSearchIndex,
   loadUserSearchRecord,
   markPaperSearchJobSuperseded,
   registerUser,
   submitAnalysisJob,
-  submitIntroductionJob,
   submitPaperSearchJob,
   updateAnalysisJobStatus,
   updatePaperSearchJobStatus,
-  uploadIntroductionReferences,
 } from "@/lib/api";
 import { buildExportFilename, getPdfCacheKey } from "@/lib/hash";
-import type { AgentLog, AnalysisResult, BatchRow, IntroductionMeta, IntroductionRecord, ReadyReport, ReportMeta, SearchMeta, SearchRecord } from "@/lib/types";
+import type { AgentLog, AnalysisResult, BatchRow, ReadyReport, ReportMeta, SearchMeta, SearchRecord } from "@/lib/types";
 import { MarkdownReport } from "./MarkdownReport";
 
 const JOB_STATUS_REFRESH_INTERVAL_MS = 180000;
@@ -41,7 +36,6 @@ type MainView =
   | { type: "workspace" }
   | { type: "report"; reportId: string }
   | { type: "search"; searchJobId: string }
-  | { type: "introduction"; introJobId: string }
   | { type: "analysis-batch"; files: File[] };
 
 type SearchContext = {
@@ -72,342 +66,6 @@ function searchHistoryLabel(meta: SearchMeta): string {
   if (status === "finished" && !meta.is_final) return `${topic}｜待最终确认`;
   const timestamp = (meta.finalized_at || meta.updated_at || meta.created_at || "").slice(0, 16);
   return timestamp ? `${topic}｜${timestamp}` : topic;
-}
-
-function introductionHistoryLabel(meta: IntroductionMeta): string {
-  const title = shorten(meta.title || "Introduction 写作", 18);
-  const status = (meta.status || "").toLowerCase();
-  if (["queued", "processing"].includes(status)) return `${title}｜写作中`;
-  if (status === "waiting_reference_upload") return `${title}｜待上传参考论文`;
-  if (status === "waiting_innovation_selection") return `${title}｜待选择创新点`;
-  if (status === "failed") return `${title}｜任务失败`;
-  const timestamp = (meta.updated_at || meta.created_at || "").slice(0, 16);
-  return timestamp ? `${title}｜${timestamp}` : title;
-}
-
-function introductionStatusText(status?: string): string {
-  const value = (status || "").toLowerCase();
-  if (value === "queued") return "排队中";
-  if (value === "processing") return "后台写作中";
-  if (value === "waiting_reference_upload") return "等待上传参考论文";
-  if (value === "waiting_innovation_selection") return "等待选择创新点";
-  if (value === "finished") return "已完成";
-  if (value === "failed") return "失败";
-  return status || "未知状态";
-}
-
-function renderValueAsMarkdown(value: unknown, fallback = "暂无内容。"): string {
-  if (value == null) return fallback;
-  if (typeof value === "string") return value.trim() || fallback;
-  try {
-    return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
-  } catch {
-    return String(value) || fallback;
-  }
-}
-
-function extractIntroSeedCitationPack(record: IntroductionRecord | null): unknown {
-  const anyRecord = record as unknown as Record<string, unknown> | null;
-  const problemCard = anyRecord?.problem_card as Record<string, unknown> | undefined;
-  const searchQueryPack = anyRecord?.search_query_pack as Record<string, unknown> | undefined;
-  const rawPayload = anyRecord?.raw_payload as Record<string, unknown> | undefined;
-
-  return (
-    problemCard?.seed_citation_pack ||
-    searchQueryPack?.seed_citation_pack ||
-    rawPayload?.intro_seed_citation_pack ||
-    rawPayload?.seed_citation_pack ||
-    null
-  );
-}
-
-function innovationCandidateTitle(item: Record<string, unknown>, index: number): string {
-  const title =
-    item.title ||
-    item.name ||
-    item.innovation_name ||
-    item["创新点名称"] ||
-    item["创新点"];
-  return String(title || `创新点候选 ${index + 1}`);
-}
-
-const INTRO_FIELD_LABELS: Record<string, string> = {
-  seed_problem_card: "研究问题卡",
-  problem_card: "研究问题卡",
-  search_query_pack: "搜索关键词与筛选要求",
-  seed_citation_pack: "种子论文引用文献线索",
-  seed_citation_candidates: "引用候选",
-  same_problem_citation_names: "同问题引用名称",
-  uncertain_but_should_check: "需进一步确认的引用",
-  exact_followup_queries: "精确跟进检索词",
-  must_find_or_explain: "必须查找或说明",
-  citation_exact_queries: "引用精确检索词",
-  method_or_paper_name: "方法或论文名称",
-  citation_marker: "引用标记",
-  author_year: "作者年份",
-  title_hint: "题名线索",
-  evidence_sentence: "证据句",
-  relation_to_seed_problem: "与种子问题关系",
-  reference_role: "参考角色",
-  should_search_exactly: "是否精确检索",
-  search_results_markdown: "搜索结果",
-  literature_cards: "参考论文分析卡片",
-  gap_report: "领域痛点与普遍不足",
-  innovation_candidates: "创新点候选",
-  innovation_validation_report: "创新点验证报告",
-  intro_plan: "Introduction 大纲",
-  intro_draft: "Introduction 初稿",
-  intro_review_report: "Reviewer 审查报告",
-  final_introduction: "最终 Introduction",
-
-  task_signature: "任务签名",
-  task_name: "任务名称",
-  task_family: "任务族",
-  research_domain: "研究领域",
-  research_object: "研究对象",
-  target_entity: "目标实体",
-  target_entity_scope: "目标实体范围",
-  task_granularity: "任务粒度",
-  task_goal: "任务目标",
-  input_space: "输入空间",
-  output_space: "输出空间",
-  evaluation_target: "评价目标",
-
-  problem_boundary: "问题边界",
-  same_problem_must_have: "同问题必须满足",
-  same_problem_should_have: "同问题最好满足",
-  full_same_problem_must_have: "完全同问题必须满足",
-  same_task_family_but_not_same_problem: "同任务族但非同问题",
-  related_but_not_same: "相关但不同问题",
-  must_exclude: "必须排除",
-  must_exclude_as_main_reference: "不能作为主参考",
-
-  method_signature: "方法特征",
-  seed_method_route: "种子论文方法路线",
-  model_scope: "模型适用范围",
-  learning_paradigm: "学习范式",
-  key_modules: "关键模块",
-  data_dependency: "数据依赖",
-  training_objective: "训练目标",
-  special_designs: "特殊设计",
-
-  reference_search_intent: "参考论文检索意图",
-  desired_reference_type: "期望参考论文类型",
-  preferred_method_scope: "优先方法范围",
-  main_reference_must_match: "主参考必须匹配",
-  must_compare_against: "应优先对比的路线",
-  baseline_or_background_only: "仅作基线或背景",
-  use_as_background_only: "仅作背景参考",
-  do_not_use_as_main_reference: "不能作为主参考",
-
-  gap_signature: "缺口特征",
-  claimed_contributions: "作者声称贡献",
-  seed_limitations: "种子论文局限",
-  possible_gaps: "可能研究缺口",
-  generalizable_gap_keywords: "可泛化缺口关键词",
-  innovation_risk_keywords: "创新点风险关键词",
-
-  search_keywords_hint: "检索关键词提示",
-  exact_task_queries: "精确任务检索词",
-  task_synonym_queries: "任务同义检索词",
-  object_synonym_queries: "研究对象同义检索词",
-  granularity_queries: "粒度/输入输出检索词",
-  method_scope_queries: "方法范围检索词",
-  benchmark_or_dataset_queries: "数据集/基准检索词",
-
-  search_topic: "检索主题",
-  search_queries: "检索词",
-  requirements: "筛选要求",
-  preprint_rule: "预印本规则",
-  same_problem_criteria: "同问题判断标准",
-  preferred_reference_profile: "优先参考论文类型",
-  search_coverage_plan: "检索覆盖计划",
-  avoid: "排除方向",
-
-  title: "标题",
-  name: "名称",
-  innovation_name: "创新点名称",
-  description: "具体说明",
-  rationale: "提出依据",
-  novelty: "新颖性",
-  feasibility: "可实现性",
-  feasibility_level: "可实现性等级",
-  risk: "风险",
-  risk_level: "风险等级",
-  novelty_risk: "新颖性风险",
-  implementation_path: "实现路径",
-  expected_contribution: "预期贡献",
-  relation_to_gap: "对应痛点",
-  evidence: "依据",
-  reason: "原因",
-  confidence: "置信度",
-  status: "状态",
-  summary: "摘要",
-  priority: "优先级",
-  main_risk: "主要风险",
-
-  core_idea: "核心思路",
-  "core idea": "核心思路",
-  target_gap: "针对痛点",
-  "target gap": "针对痛点",
-  technical_route: "技术路线",
-  "technical route": "技术路线",
-  needed_experiments: "所需实验",
-  "needed experiments": "所需实验",
-  reviewer_attack_points: "审稿人可能攻击点",
-  "reviewer attack points": "审稿人可能攻击点",
-  difference_from_existing_work: "与现有工作的区别",
-  "difference from existing work": "与现有工作的区别",
-  recommended_intro_positioning: "引言中的推荐定位",
-  "recommended intro positioning": "引言中的推荐定位",
-  complementary_value: "互补价值",
-  "complementary value": "互补价值",
-  fusion_strategy: "融合策略",
-  "fusion strategy": "融合策略",
-  integration_strategy: "融合策略",
-  "integration strategy": "融合策略",
-  innovation_summary: "创新点概述",
-  "innovation summary": "创新点概述",
-  experiment_design: "实验设计",
-  "experiment design": "实验设计",
-  expected_results: "预期结果",
-  "expected results": "预期结果",
-};
-
-const INTRO_HIDDEN_FIELDS = new Set([
-  "id",
-  "innovation_id",
-  "candidate_id",
-  "paper_id",
-  "legacy_flat_fields",
-  "raw",
-  "raw_output",
-  "raw_json",
-]);
-
-function introLabel(key: string): string {
-  return INTRO_FIELD_LABELS[key] || key.replace(/_/g, " ");
-}
-
-function stripIntroNoise(text: string): string {
-  let value = String(text || "").trim();
-  if (!value) return "";
-
-  value = value
-    .replace(/<INTRO_[A-Z_]+>/g, "")
-    .replace(/<\/INTRO_[A-Z_]+>/g, "")
-    .replace(/<INTRO_[A-Z_]+\/>/g, "");
-
-  value = value.replace(
-    /^(好的[，,]\s*)?作为\s*(Gap Mining Agent|Search Query Planner Agent|Seed Paper Reader Agent|Reviewer Agent|Writer Agent|Revision Agent|Innovation Generator Agent|Innovation Validator Agent)[，,。\s]*/i,
-    "",
-  );
-
-  value = value.replace(
-    /^我已?经?综合研究问题卡和参考论文卡片[，,。\s]*/i,
-    "",
-  );
-
-  value = value.replace(
-    /^以下是(分析报告|结果|输出|整理后的内容)[：:\s]*/i,
-    "",
-  );
-
-  return value.trim();
-}
-
-function normalizeIntroDisplayValue(key: string, value: string): string {
-  const raw = String(value || "").trim();
-  const lower = raw.toLowerCase();
-  const normalizedKey = String(key || "").toLowerCase().replace(/\s+/g, "_");
-
-  if (["high", "medium", "low"].includes(lower)) {
-    if (["feasibility", "feasibility_level", "priority", "confidence"].includes(normalizedKey)) {
-      if (lower === "high") return "高";
-      if (lower === "medium") return "中";
-      if (lower === "low") return "低";
-    }
-
-    if (["risk", "risk_level", "novelty_risk", "main_risk"].includes(normalizedKey)) {
-      if (lower === "high") return "高风险";
-      if (lower === "medium") return "中风险";
-      if (lower === "low") return "低风险";
-    }
-  }
-
-  return raw;
-}
-
-function formatIntroPrimitive(value: unknown, key = ""): string {
-  if (value == null) return "";
-  if (typeof value === "string") return normalizeIntroDisplayValue(key, stripIntroNoise(value));
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return "";
-}
-
-function renderIntroValueAsMarkdown(value: unknown, depth = 0): string {
-  if (value == null) return "暂无内容。";
-
-  if (typeof value === "string") {
-    return stripIntroNoise(value) || "暂无内容。";
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  if (Array.isArray(value)) {
-    if (!value.length) return "暂无内容。";
-
-    return value
-      .map((item, index) => {
-        if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
-          return `${index + 1}. ${formatIntroPrimitive(item)}`;
-        }
-
-        if (item && typeof item === "object") {
-          return `### ${index + 1}. ${innovationCandidateTitle(item as Record<string, unknown>, index)}\n\n${renderIntroValueAsMarkdown(item, depth + 1)}`;
-        }
-
-        return `${index + 1}. ${String(item)}`;
-      })
-      .join("\n\n");
-  }
-
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    const lines: string[] = [];
-
-    for (const [key, raw] of Object.entries(obj)) {
-      if (INTRO_HIDDEN_FIELDS.has(key)) continue;
-      if (raw == null || raw === "" || (Array.isArray(raw) && raw.length === 0)) continue;
-
-      const label = introLabel(key);
-
-      if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
-        const text = formatIntroPrimitive(raw, key);
-        if (text) lines.push(`**${label}：** ${text}`);
-      } else if (Array.isArray(raw)) {
-        const body = raw.length
-          ? raw.map((item, index) => {
-              if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
-                return `${index + 1}. ${formatIntroPrimitive(item, key)}`;
-              }
-              return `${index + 1}. ${renderIntroValueAsMarkdown(item, depth + 1)}`;
-            }).join("\n")
-          : "暂无内容。";
-        lines.push(`**${label}：**\n\n${body}`);
-      } else if (typeof raw === "object") {
-        const heading = depth <= 0 ? "##" : "###";
-        const nested = renderIntroValueAsMarkdown(raw, depth + 1);
-        if (nested && nested !== "暂无内容。") lines.push(`${heading} ${label}\n\n${nested}`);
-      }
-    }
-
-    return lines.join("\n\n") || "暂无内容。";
-  }
-
-  return String(value);
 }
 
 function reportHistoryLabel(meta: ReportMeta): string {
@@ -545,30 +203,24 @@ function Sidebar({
   username,
   reports,
   searches,
-  introductions,
   selectedReportId,
   selectedSearchId,
-  selectedIntroId,
   onRefresh,
   onLogout,
   onSelectWorkspace,
   onSelectReport,
   onSelectSearch,
-  onSelectIntroduction,
 }: {
   username: string;
   reports: ReportMeta[];
   searches: SearchMeta[];
-  introductions: IntroductionMeta[];
   selectedReportId: string | null;
   selectedSearchId: string | null;
-  selectedIntroId: string | null;
   onRefresh: () => void;
   onLogout: () => void;
   onSelectWorkspace: () => void;
   onSelectReport: (id: string) => void;
   onSelectSearch: (id: string) => void;
-  onSelectIntroduction: (id: string) => void;
 }) {
   return (
     <aside className="sidebar stack">
@@ -609,21 +261,6 @@ function Sidebar({
               {searchHistoryLabel(item)}
             </button>
           )) : <p className="small">当前账号暂无文献检索档案。</p>}
-        </div>
-      </div>
-      <div className="divider" />
-      <div>
-        <h3>Introduction 写作档案</h3>
-        <div className="history-list">
-          {introductions.length ? introductions.map((item) => (
-            <button
-              key={item.id}
-              className={`history-item ${selectedIntroId === item.id ? "active" : ""}`}
-              onClick={() => onSelectIntroduction(item.id)}
-            >
-              {introductionHistoryLabel(item)}
-            </button>
-          )) : <p className="small">当前账号暂无 Introduction 写作档案。</p>}
         </div>
       </div>
       <p className="small">历史报告会长期保留，可在重新登录后继续查看。</p>
@@ -699,10 +336,6 @@ function WorkspaceIntro() {
           <h3>论文精读</h3>
           <p className="muted">上传论文 PDF 后，系统会生成结构化精读报告，并写入当前账号档案。</p>
         </div>
-        <div className="card-soft">
-          <h3>Introduction 写作</h3>
-          <p className="muted">必须上传种子论文并填写已有创新点，系统检索 3 篇同问题论文、归纳痛点，并直接生成 Introduction。</p>
-        </div>
       </div>
     </div>
   );
@@ -713,11 +346,9 @@ export function Workbench() {
   const [configVersion, setConfigVersion] = useState("");
   const [reports, setReports] = useState<ReportMeta[]>([]);
   const [searches, setSearches] = useState<SearchMeta[]>([]);
-  const [introductions, setIntroductions] = useState<IntroductionMeta[]>([]);
   const [view, setView] = useState<MainView>({ type: "workspace" });
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedSearchId, setSelectedSearchId] = useState<string | null>(null);
-  const [selectedIntroId, setSelectedIntroId] = useState<string | null>(null);
   const [appState, setAppState] = useState<AppState>("IDLE");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -739,31 +370,19 @@ export function Workbench() {
   const [selectedSearchRecord, setSelectedSearchRecord] = useState<SearchRecord | null>(null);
   const [newFeedback, setNewFeedback] = useState("");
   const [activeSearchContext, setActiveSearchContext] = useState<SearchContext | null>(null);
-  const [introSeedPdf, setIntroSeedPdf] = useState<File | null>(null);
-  const [introInnovationText, setIntroInnovationText] = useState("");
-  const [introTargetLanguage, setIntroTargetLanguage] = useState("中文");
-  const [introTargetWords, setIntroTargetWords] = useState("1000");
-  const [activeIntroJobId, setActiveIntroJobId] = useState("");
-  const [currentIntroJobId, setCurrentIntroJobId] = useState("");
-  const [selectedIntroRecord, setSelectedIntroRecord] = useState<IntroductionRecord | null>(null);
-  const [introReferenceFiles, setIntroReferenceFiles] = useState<File[]>([]);
   const [analysisSubmitting, setAnalysisSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const introSeedInputRef = useRef<HTMLInputElement | null>(null);
-  const introReferenceInputRef = useRef<HTMLInputElement | null>(null);
 
   const usernameKey = useMemo(() => canonicalUsername(currentUser), [currentUser]);
 
   const refreshHistories = useCallback(async (username = currentUser) => {
     if (!username) return;
-    const [reportIndex, searchIndex, introductionIndex] = await Promise.all([
+    const [reportIndex, searchIndex] = await Promise.all([
       loadUserReportIndex(username),
       loadUserSearchIndex(username),
-      loadUserIntroductionIndex(username),
     ]);
     setReports(reportIndex || []);
     setSearches(searchIndex || []);
-    setIntroductions(introductionIndex || []);
   }, [currentUser]);
 
   useEffect(() => {
@@ -825,40 +444,6 @@ export function Workbench() {
     };
   }, [activeSearchJobId, appState, currentUser, refreshHistories]);
 
-  useEffect(() => {
-    if (!activeIntroJobId || !currentUser) return;
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const meta = await getUserIntroductionJobState(currentUser, activeIntroJobId);
-        if (cancelled || !meta) return;
-        const status = (meta.status || "").toLowerCase();
-
-        if (["waiting_reference_upload", "waiting_innovation_selection", "finished", "failed"].includes(status)) {
-          const record = await loadUserIntroductionRecord(currentUser, activeIntroJobId);
-          if (!cancelled && record) {
-            setSelectedIntroRecord(record);
-            setSelectedIntroId(activeIntroJobId);
-            setCurrentIntroJobId(activeIntroJobId);
-            setView({ type: "introduction", introJobId: activeIntroJobId });
-            setActiveIntroJobId("");
-            await refreshHistories(currentUser);
-          }
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    }
-
-    poll();
-    const timer = window.setInterval(poll, JOB_STATUS_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [activeIntroJobId, currentUser, refreshHistories]);
-
   function login(username: string) {
     setCurrentUser(username);
     localStorage.setItem("paperseacrh_current_user", username);
@@ -871,11 +456,9 @@ export function Workbench() {
     setConfigVersion("");
     setReports([]);
     setSearches([]);
-    setIntroductions([]);
     setView({ type: "workspace" });
     setSelectedReportId(null);
     setSelectedSearchId(null);
-    setSelectedIntroId(null);
     setAppState("IDLE");
     setMessage("");
     setError("");
@@ -896,26 +479,16 @@ export function Workbench() {
     setSelectedSearchRecord(null);
     setNewFeedback("");
     setActiveSearchContext(null);
-    setIntroSeedPdf(null);
-    setIntroInnovationText("");
-    setIntroTargetLanguage("中文");
-    setIntroTargetWords("1000");
-    setActiveIntroJobId("");
-    setCurrentIntroJobId("");
-    setSelectedIntroRecord(null);
-    setIntroReferenceFiles([]);
     clearSelectedPdfFiles();
   }
 
   function resetWorkspace() {
     setSelectedReportId(null);
     setSelectedSearchId(null);
-    setSelectedIntroId(null);
     setSelectedReportRecord(null);
     setSelectedReportMeta(null);
     setSelectedReportLogs([]);
     setSelectedSearchRecord(null);
-    setSelectedIntroRecord(null);
     setView({ type: "workspace" });
   }
 
@@ -924,51 +497,6 @@ export function Workbench() {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  }
-
-  function clearIntroSeedPdf() {
-    setIntroSeedPdf(null);
-    if (introSeedInputRef.current) {
-      introSeedInputRef.current.value = "";
-    }
-  }
-
-  function clearIntroReferenceFiles() {
-    setIntroReferenceFiles([]);
-    if (introReferenceInputRef.current) {
-      introReferenceInputRef.current.value = "";
-    }
-  }
-
-  function addIntroReferenceFiles(files: File[]) {
-    const pdfs = files.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
-    if (!pdfs.length) {
-      if (introReferenceInputRef.current) introReferenceInputRef.current.value = "";
-      return;
-    }
-
-    setIntroReferenceFiles((previous) => {
-      const seen = new Set(previous.map(fileIdentity));
-      const merged = [...previous];
-
-      for (const file of pdfs) {
-        const key = fileIdentity(file);
-        if (!seen.has(key)) {
-          seen.add(key);
-          merged.push(file);
-        }
-      }
-
-      return merged.slice(0, 6);
-    });
-
-    if (introReferenceInputRef.current) {
-      introReferenceInputRef.current.value = "";
-    }
-  }
-
-  function removeIntroReferenceFile(index: number) {
-    setIntroReferenceFiles((previous) => previous.filter((_, currentIndex) => currentIndex !== index));
   }
 
   function addPdfFiles(files: File[]) {
@@ -1015,15 +543,7 @@ export function Workbench() {
     setActiveSearchContext(null);
     setBatchRows([]);
     setReadyReports([]);
-    setActiveIntroJobId("");
-    setCurrentIntroJobId("");
-    setSelectedIntroRecord(null);
-    setSelectedIntroId(null);
-    setIntroReferenceFiles([]);
     clearSelectedPdfFiles();
-    if (introReferenceInputRef.current) {
-      introReferenceInputRef.current.value = "";
-    }
     resetWorkspace();
     setAppState("IDLE");
     void refreshHistories(currentUser);
@@ -1046,34 +566,16 @@ export function Workbench() {
 
     const latestReport = reports[0];
     const latestSearch = searches[0];
-    const latestIntro = introductions[0];
     const latestReportTime = reportActivityTime(latestReport);
     const latestSearchTime = searchActivityTime(latestSearch);
-    const latestIntroTime = parseHistoryTime(latestIntro?.updated_at || latestIntro?.created_at);
 
     if (latestSearch && ["queued", "processing"].includes((latestSearch.status || "").toLowerCase())) {
       setSelectedSearchId(latestSearch.search_job_id);
       setSelectedReportId(null);
-      setSelectedIntroId(null);
       setCurrentSearchJobId(latestSearch.search_job_id);
       setActiveSearchJobId(latestSearch.search_job_id);
       setView({ type: "workspace" });
       setAppState("SEARCH_RUNNING");
-      return;
-    }
-
-    if (latestIntro && ["queued", "processing"].includes((latestIntro.status || "").toLowerCase())) {
-      setSelectedIntroId(latestIntro.id);
-      setSelectedReportId(null);
-      setSelectedSearchId(null);
-      setCurrentIntroJobId(latestIntro.id);
-      setActiveIntroJobId(latestIntro.id);
-      setView({ type: "introduction", introJobId: latestIntro.id });
-      return;
-    }
-
-    if (latestIntro && latestIntroTime >= latestSearchTime && latestIntroTime >= latestReportTime) {
-      void loadIntroductionView(latestIntro.id);
       return;
     }
 
@@ -1133,125 +635,10 @@ export function Workbench() {
     }
   }
 
-  async function startIntroductionJob() {
-    setError("");
-    setMessage("");
-
-    if (!introSeedPdf) {
-      setError("Introduction 写作必须上传一篇种子论文 PDF。");
-      return;
-    }
-
-    if (!introInnovationText.trim()) {
-      setError("Introduction 写作必须填写你的已有创新点。");
-      return;
-    }
-
-    try {
-      resetWorkspace();
-      setMessage("正在提交 Introduction 写作任务……");
-
-      const result = await submitIntroductionJob(
-        {
-          username: currentUser,
-          title: `Introduction 写作：${introSeedPdf.name || "种子论文"}`,
-          hasSeedPdf: true,
-          manualProblemText: "",
-          taskGoal: "",
-          taskGranularity: "",
-          researchObject: "",
-          inputOutput: "",
-          hasUserInnovation: true,
-          userInnovationText: introInnovationText,
-          targetLanguage: introTargetLanguage,
-          targetWords: introTargetWords,
-        },
-        introSeedPdf,
-      );
-
-      const introJobId = String(result.job_id || result.id || "");
-      if (!introJobId) {
-        throw new Error("后端未返回 Introduction 任务 ID。");
-      }
-
-      setActiveIntroJobId(introJobId);
-      setCurrentIntroJobId(introJobId);
-      setSelectedIntroId(introJobId);
-      setView({ type: "introduction", introJobId });
-      setMessage("Introduction 写作任务已提交。系统会先搜索 3 篇同研究问题论文；搜索完成后请下载并上传这 3 篇参考论文 PDF。");
-      clearIntroSeedPdf();
-      clearIntroReferenceFiles();
-      await refreshHistories(currentUser);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function loadIntroductionView(introJobId: string) {
-    setError("");
-    setSelectedIntroId(introJobId);
-    setSelectedReportId(null);
-    setSelectedSearchId(null);
-    setView({ type: "introduction", introJobId });
-    setSelectedIntroRecord(null);
-    try {
-      const record = await loadUserIntroductionRecord(currentUser, introJobId);
-      if (!record) {
-        setError("未找到该 Introduction 写作任务，可能已被删除。");
-        return;
-      }
-      setSelectedIntroRecord(record);
-      const status = (record.status || "").toLowerCase();
-      if (["queued", "processing"].includes(status)) {
-        setActiveIntroJobId(introJobId);
-        setCurrentIntroJobId(introJobId);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function submitIntroReferencePapers() {
-    const introJobId = selectedIntroRecord?.id || currentIntroJobId || selectedIntroId || "";
-    if (!introJobId) {
-      setError("缺少 Introduction 任务 ID，无法上传参考论文。");
-      return;
-    }
-    if (introReferenceFiles.length !== 3) {
-      setError("请一次选择并上传 3 篇同研究问题参考论文 PDF。");
-      return;
-    }
-
-    try {
-      setError("");
-      setMessage("正在上传参考论文 PDF，并继续 Introduction 写作流程……");
-      await uploadIntroductionReferences(introJobId, introReferenceFiles);
-      clearIntroReferenceFiles();
-      setSelectedIntroRecord((previous) =>
-        previous && previous.id === introJobId
-          ? {
-              ...previous,
-              status: "processing",
-              progress_text: "参考论文 PDF 已上传，正在继续 Introduction 写作流程……",
-            }
-          : previous,
-      );
-      setActiveIntroJobId(introJobId);
-      setCurrentIntroJobId(introJobId);
-      setMessage("参考论文 PDF 已上传，正在继续 Introduction 写作流程……");
-      await refreshHistories(currentUser);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-
-
   async function loadReportView(reportId: string) {
     setError("");
     setSelectedReportId(reportId);
     setSelectedSearchId(null);
-    setSelectedIntroId(null);
     setView({ type: "report", reportId });
     setSelectedReportRecord(null);
     setSelectedReportMeta(null);
@@ -1283,7 +670,6 @@ export function Workbench() {
     setError("");
     setSelectedSearchId(searchJobId);
     setSelectedReportId(null);
-    setSelectedIntroId(null);
     setView({ type: "search", searchJobId });
     setSelectedSearchRecord(null);
     try {
@@ -1483,22 +869,6 @@ export function Workbench() {
   if (!currentUser) return <LoginCard onLogin={login} />;
 
   const currentSearchState = searches.find((item) => item.search_job_id === activeSearchJobId);
-  const currentIntroState = introductions.find((item) => item.id === activeIntroJobId);
-  const selectedIntroStatus = (selectedIntroRecord?.status || "").toLowerCase();
-  const selectedIntroHasUploadedReferences = Boolean(
-    (selectedIntroRecord?.reference_papers || []).length ||
-    (selectedIntroRecord?.literature_cards || []).length ||
-    selectedIntroRecord?.gap_report ||
-    selectedIntroRecord?.innovation_validation_report ||
-    (selectedIntroRecord?.selected_innovations || []).length ||
-    selectedIntroRecord?.template_analysis ||
-    selectedIntroRecord?.intro_plan ||
-    selectedIntroRecord?.intro_draft ||
-    selectedIntroRecord?.intro_review_report ||
-    selectedIntroRecord?.final_introduction
-  );
-  const shouldShowIntroReferenceUpload = selectedIntroStatus === "waiting_reference_upload" && !selectedIntroHasUploadedReferences;
-  const selectedIntroSeedCitationPack = extractIntroSeedCitationPack(selectedIntroRecord);
   const pendingRows = batchRows.filter((row) => ["queued", "processing"].includes((row.status || "").toLowerCase()));
   const selectedPendingReport = selectedReportMeta && ["queued", "processing"].includes((selectedReportMeta.status || "").toLowerCase());
 
@@ -1508,16 +878,13 @@ export function Workbench() {
         username={currentUser}
         reports={reports}
         searches={searches}
-        introductions={introductions}
         selectedReportId={selectedReportId}
         selectedSearchId={selectedSearchId}
-        selectedIntroId={selectedIntroId}
         onRefresh={resetToInitialView}
         onLogout={logout}
-        onSelectWorkspace={resetToInitialView}
+        onSelectWorkspace={openLatestActivity}
         onSelectReport={loadReportView}
         onSelectSearch={loadSearchView}
-        onSelectIntroduction={loadIntroductionView}
       />
       <main className="main stack">
         {error ? <div className="notice error">{error}</div> : null}
@@ -1567,57 +934,6 @@ export function Workbench() {
             )}
             <button className="button full" disabled={!pdfFiles.length || analysisSubmitting} onClick={() => startAnalysis(pdfFiles)}>{analysisSubmitting ? "正在提交..." : "启动深度解析"}</button>
           </div>
-
-          <div className="card stack task-card">
-            <h2>Introduction 写作工作台</h2>
-            <p className="muted">必须上传种子论文 PDF，并填写你已有的创新点。系统会先搜索 3 篇同研究问题论文，等待你上传这 3 篇 PDF 后，归纳普遍痛点并直接生成最终 Introduction。</p>
-
-            <div className="stack-sm">
-              <label className="small">种子论文 PDF（必填）</label>
-              <input
-                ref={introSeedInputRef}
-                className="file-input"
-                type="file"
-                accept="application/pdf"
-                onChange={(event) => {
-                  const file = (event.target.files?.[0] || null) as File | null;
-                  if (file && !(file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
-                    setError("种子论文只能上传 PDF 文件。");
-                    clearIntroSeedPdf();
-                    return;
-                  }
-                  setIntroSeedPdf(file);
-                }}
-              />
-              {introSeedPdf ? (
-                <div className="selected-file-item">
-                  <span className="selected-file-name">{introSeedPdf.name}</span>
-                  <button className="button secondary tiny" type="button" onClick={clearIntroSeedPdf}>删除</button>
-                </div>
-              ) : <p className="small">系统会重点读取 Abstract / Introduction / Related Work / Discussion / Conclusion / Limitations。</p>}
-            </div>
-
-            <div className="stack-sm">
-              <label className="small">已有创新点（必填）</label>
-              <textarea className="textarea" value={introInnovationText} onChange={(event) => setIntroInnovationText(event.target.value)} placeholder="请列出你的创新点、方法想法或改进方向。" />
-            </div>
-
-            <div className="grid-2">
-              <div className="stack-sm">
-                <label className="small">目标语言</label>
-                <select className="select" value={introTargetLanguage} onChange={(event) => setIntroTargetLanguage(event.target.value)}>
-                  <option>中文</option>
-                  <option>英文</option>
-                </select>
-              </div>
-              <div className="stack-sm">
-                <label className="small">目标字数</label>
-                <input className="input" value={introTargetWords} onChange={(event) => setIntroTargetWords(event.target.value)} placeholder="例如：1000" />
-              </div>
-            </div>
-
-            <button className="button full" disabled={!introSeedPdf || !introInnovationText.trim()} onClick={startIntroductionJob}>启动 Introduction 写作任务</button>
-          </div>
         </section>
 
         {appState === "SEARCH_RUNNING" ? (
@@ -1625,14 +941,6 @@ export function Workbench() {
             <h2>文献检索运行中</h2>
             <div className="notice">{currentSearchState?.progress_text || "后台文献检索任务正在运行。页面会自动轮询状态。"}</div>
             <p className="small">任务已由后台接管。关闭页面后仍可稍后重新登录查看结果。</p>
-          </div>
-        ) : null}
-
-        {activeIntroJobId ? (
-          <div className="card stack">
-            <h2>Introduction 写作运行中</h2>
-            <div className="notice">{currentIntroState?.progress_text || "后台 Introduction 写作任务正在运行。页面会自动轮询状态。"}</div>
-            <p className="small">任务已由后台接管。关闭页面后仍可稍后重新登录查看结果。搜索完成后，系统会停在“等待上传 3 篇参考论文 PDF”阶段。</p>
           </div>
         ) : null}
 
@@ -1692,110 +1000,6 @@ export function Workbench() {
             ) : null}
             <h3>六篇候选文献</h3>
             <div className="card-soft"><MarkdownReport markdown={selectedSearchRecord.result_markdown || "该历史检索暂无结果。"} normalize={false} /></div>
-          </div>
-        ) : null}
-
-        {view.type === "introduction" ? (
-          <div className="card stack intro-result-view">
-            <h2>Introduction 写作任务</h2>
-            {selectedIntroRecord ? (
-              <>
-                <div className={`notice ${(selectedIntroRecord.status || "").toLowerCase() === "failed" ? "error" : "success"}`}>
-                  当前状态：{introductionStatusText(selectedIntroRecord.status)}。{selectedIntroRecord.progress_text || ""}
-                </div>
-
-                {selectedIntroRecord.problem_card ? (
-                  <details className="card-soft">
-                    <summary>研究问题卡</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.problem_card)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroSeedCitationPack ? (
-                  <details className="card-soft" open={shouldShowIntroReferenceUpload}>
-                    <summary>种子论文引用文献线索</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroSeedCitationPack)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroRecord.search_query_pack ? (
-                  <details className="card-soft">
-                    <summary>搜索关键词与筛选要求</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.search_query_pack)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroRecord.search_results_markdown ? (
-                  <details className="card-soft" open={shouldShowIntroReferenceUpload}>
-                    <summary>搜索结果</summary>
-                    <div className="stack" style={{ marginTop: 12 }}>
-                      {shouldShowIntroReferenceUpload ? (
-                        <p className="small">请根据系统推荐结果自行下载 3 篇同研究问题论文 PDF，并在下方上传。</p>
-                      ) : null}
-                      <MarkdownReport markdown={selectedIntroRecord.search_results_markdown} normalize={false} />
-                    </div>
-                  </details>
-                ) : null}
-
-                {shouldShowIntroReferenceUpload ? (
-                  <div className="card-soft stack">
-                    <h3>上传参考论文 PDF</h3>
-                    <p className="small">请上传系统推荐的 3 篇同研究问题参考论文 PDF。上传后，后端会轻量精读这些论文、归纳普遍痛点，并直接生成最终 Introduction。</p>
-                    <input
-                      ref={introReferenceInputRef}
-                      className="file-input"
-                      type="file"
-                      accept="application/pdf"
-                      multiple
-                      onChange={(event) => addIntroReferenceFiles(Array.from(event.target.files || []))}
-                    />
-                    {introReferenceFiles.length ? (
-                      <div className="selected-file-list">
-                        {introReferenceFiles.map((file, index) => (
-                          <div key={fileIdentity(file)} className="selected-file-item">
-                            <span className="selected-file-name">{index + 1}. {file.name}</span>
-                            <button className="button secondary tiny" type="button" onClick={() => removeIntroReferenceFile(index)}>删除</button>
-                          </div>
-                        ))}
-                        <button className="button secondary" type="button" onClick={clearIntroReferenceFiles}>清空已选参考论文</button>
-                      </div>
-                    ) : (
-                      <p className="small">尚未选择参考论文 PDF。</p>
-                    )}
-                    <button className="button full" disabled={introReferenceFiles.length !== 3} onClick={submitIntroReferencePapers}>上传 3 篇参考论文并继续写作</button>
-                  </div>
-                ) : null}
-
-                {selectedIntroRecord.literature_cards?.length ? (
-                  <details className="card-soft">
-                    <summary>参考论文轻量精读卡片</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.literature_cards)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroRecord.gap_report ? (
-                  <details className="card-soft">
-                    <summary>领域痛点与普遍不足</summary>
-                    <MarkdownReport markdown={renderIntroValueAsMarkdown(selectedIntroRecord.gap_report)} normalize={false} />
-                  </details>
-                ) : null}
-
-                {selectedIntroRecord.final_introduction ? (
-                  <div className="card-soft stack">
-                    <div className="notice success">最终 Introduction 已生成。</div>
-                    <MarkdownReport markdown={selectedIntroRecord.final_introduction} normalize={false} />
-                    <button
-                      className="button"
-                      onClick={() => downloadText("final_introduction.md", selectedIntroRecord.final_introduction || "")}
-                    >
-                      下载 Introduction（Markdown）
-                    </button>
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <div className="notice">正在读取 Introduction 写作任务状态。</div>
-            )}
           </div>
         ) : null}
 
