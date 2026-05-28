@@ -29,6 +29,20 @@ function formatJson(value: unknown) {
   }
 }
 
+function shortText(value: string | undefined | null, fallback = "-") {
+  const text = String(value || "").trim();
+  return text || fallback;
+}
+
+function StatusBadge({ status }: { status?: string }) {
+  const value = String(status || "unknown").toLowerCase();
+  return <span className={`intro-badge intro-badge-${value}`}>{status || "unknown"}</span>;
+}
+
+function StagePill({ stage }: { stage?: string }) {
+  return <span className="intro-stage-pill">{stage || "waiting"}</span>;
+}
+
 export default function IntroductionWriterPage() {
   const [userId, setUserId] = useState("");
   const [innovationText, setInnovationText] = useState("");
@@ -121,9 +135,7 @@ export default function IntroductionWriterPage() {
 
       if (result?.job_id) {
         setJobId(result.job_id);
-        setMessage(
-          "Main reference paper submitted. The system is analyzing it."
-        );
+        setMessage("Main reference paper submitted. The system is analyzing it.");
         await refreshHistory(userId);
       } else {
         setMessage(result?.message || "Submit succeeded but no job_id returned.");
@@ -156,9 +168,7 @@ export default function IntroductionWriterPage() {
         file2: supportFile2,
       });
 
-      setMessage(
-        "Supporting papers submitted. The system is generating the English Introduction."
-      );
+      setMessage("Supporting papers submitted. The system is generating the English Introduction.");
       await refreshJob(jobId);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -180,265 +190,1016 @@ export default function IntroductionWriterPage() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">English Introduction Writer</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Upload one main reference paper and your innovation points. After the
-          system recommends same-problem papers, upload two supporting papers to
-          generate an English Introduction.
-        </p>
-      </div>
+    <main className="intro-page">
+      <style>{`
+        :root {
+          --intro-bg: #f5f7fb;
+          --intro-card: rgba(255, 255, 255, 0.92);
+          --intro-card-solid: #ffffff;
+          --intro-border: #dfe5ef;
+          --intro-border-strong: #c8d2e2;
+          --intro-text: #152033;
+          --intro-muted: #64748b;
+          --intro-muted-2: #94a3b8;
+          --intro-primary: #2563eb;
+          --intro-primary-dark: #1d4ed8;
+          --intro-primary-soft: #eff6ff;
+          --intro-green: #16a34a;
+          --intro-green-soft: #ecfdf5;
+          --intro-red: #dc2626;
+          --intro-red-soft: #fef2f2;
+          --intro-yellow: #d97706;
+          --intro-yellow-soft: #fffbeb;
+          --intro-shadow: 0 20px 60px rgba(15, 23, 42, 0.10);
+          --intro-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.08);
+          --intro-radius: 22px;
+        }
 
-      {message && (
-        <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
-          {message}
-        </div>
-      )}
+        * {
+          box-sizing: border-box;
+        }
 
-      <section className="mb-8 rounded-xl border border-gray-200 p-5">
-        <h2 className="mb-4 text-xl font-semibold">
-          Step 1: Main reference paper and innovation points
-        </h2>
+        body {
+          margin: 0;
+          background:
+            radial-gradient(circle at top left, rgba(37, 99, 235, 0.13), transparent 30%),
+            radial-gradient(circle at 78% 12%, rgba(14, 165, 233, 0.12), transparent 28%),
+            var(--intro-bg);
+          color: var(--intro-text);
+          font-family:
+            Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+            "Segoe UI", sans-serif;
+        }
 
-        <label className="mb-2 block text-sm font-medium">
-          Innovation points
-        </label>
-        <textarea
-          value={innovationText}
-          onChange={(event) => setInnovationText(event.target.value)}
-          className="mb-4 h-52 w-full rounded-lg border border-gray-300 p-3 text-sm outline-none"
-          placeholder={
-            "Describe your research problem, target task, method idea, and 2–4 innovation points. The generated Introduction will be English only."
+        .intro-page {
+          min-height: 100vh;
+          padding: 36px 24px 56px;
+        }
+
+        .intro-container {
+          width: min(1180px, 100%);
+          margin: 0 auto;
+        }
+
+        .intro-hero {
+          position: relative;
+          overflow: hidden;
+          display: grid;
+          grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+          gap: 24px;
+          padding: 34px;
+          border: 1px solid rgba(203, 213, 225, 0.75);
+          border-radius: 30px;
+          background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.86)),
+            linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(14, 165, 233, 0.07));
+          box-shadow: var(--intro-shadow);
+        }
+
+        .intro-hero::after {
+          content: "";
+          position: absolute;
+          right: -80px;
+          top: -80px;
+          width: 240px;
+          height: 240px;
+          border-radius: 999px;
+          background: rgba(37, 99, 235, 0.11);
+        }
+
+        .intro-kicker {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          width: fit-content;
+          padding: 8px 12px;
+          border: 1px solid rgba(37, 99, 235, 0.18);
+          border-radius: 999px;
+          background: rgba(239, 246, 255, 0.8);
+          color: var(--intro-primary-dark);
+          font-size: 13px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+        }
+
+        .intro-kicker-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          background: var(--intro-primary);
+          box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.12);
+        }
+
+        .intro-title {
+          margin: 18px 0 12px;
+          color: #0f172a;
+          font-size: clamp(34px, 4vw, 56px);
+          line-height: 1.02;
+          letter-spacing: -0.055em;
+        }
+
+        .intro-subtitle {
+          max-width: 780px;
+          margin: 0;
+          color: var(--intro-muted);
+          font-size: 16px;
+          line-height: 1.7;
+        }
+
+        .intro-hero-side {
+          position: relative;
+          z-index: 1;
+          display: grid;
+          gap: 12px;
+          align-content: center;
+        }
+
+        .intro-step-mini {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+          padding: 14px;
+          border: 1px solid rgba(203, 213, 225, 0.75);
+          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.74);
+          box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+        }
+
+        .intro-step-index {
+          display: grid;
+          place-items: center;
+          flex: 0 0 auto;
+          width: 30px;
+          height: 30px;
+          border-radius: 10px;
+          background: #0f172a;
+          color: white;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .intro-step-mini-title {
+          margin: 0 0 3px;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .intro-step-mini-text {
+          margin: 0;
+          color: var(--intro-muted);
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
+        .intro-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.75fr);
+          gap: 22px;
+          margin-top: 24px;
+          align-items: start;
+        }
+
+        .intro-stack {
+          display: grid;
+          gap: 22px;
+        }
+
+        .intro-card {
+          border: 1px solid var(--intro-border);
+          border-radius: var(--intro-radius);
+          background: var(--intro-card);
+          box-shadow: var(--intro-shadow-soft);
+          backdrop-filter: blur(8px);
+        }
+
+        .intro-card-header {
+          display: flex;
+          gap: 14px;
+          align-items: center;
+          justify-content: space-between;
+          padding: 22px 24px 0;
+        }
+
+        .intro-card-title-wrap {
+          min-width: 0;
+        }
+
+        .intro-card-title {
+          margin: 0;
+          color: #0f172a;
+          font-size: 21px;
+          line-height: 1.25;
+          letter-spacing: -0.025em;
+        }
+
+        .intro-card-desc {
+          margin: 7px 0 0;
+          color: var(--intro-muted);
+          font-size: 13px;
+          line-height: 1.55;
+        }
+
+        .intro-card-body {
+          padding: 22px 24px 24px;
+        }
+
+        .intro-form-grid {
+          display: grid;
+          gap: 16px;
+        }
+
+        .intro-label {
+          display: block;
+          margin-bottom: 8px;
+          color: #334155;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .intro-textarea {
+          display: block;
+          width: 100%;
+          min-height: 210px;
+          resize: vertical;
+          padding: 15px 16px;
+          border: 1px solid var(--intro-border-strong);
+          border-radius: 16px;
+          background: #ffffff;
+          color: var(--intro-text);
+          font: inherit;
+          font-size: 14px;
+          line-height: 1.65;
+          outline: none;
+          transition: border-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .intro-textarea:focus {
+          border-color: rgba(37, 99, 235, 0.65);
+          box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+        }
+
+        .intro-file-box {
+          position: relative;
+          display: flex;
+          gap: 14px;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px;
+          border: 1px dashed #b7c4d8;
+          border-radius: 18px;
+          background: linear-gradient(180deg, #ffffff, #f8fafc);
+        }
+
+        .intro-file-info {
+          min-width: 0;
+        }
+
+        .intro-file-title {
+          margin: 0;
+          color: #0f172a;
+          font-size: 14px;
+          font-weight: 800;
+        }
+
+        .intro-file-name {
+          margin: 4px 0 0;
+          color: var(--intro-muted);
+          font-size: 12px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .intro-file-input {
+          max-width: 260px;
+          color: var(--intro-muted);
+          font-size: 13px;
+        }
+
+        .intro-button-row {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          flex-wrap: wrap;
+          margin-top: 4px;
+        }
+
+        .intro-button {
+          appearance: none;
+          border: 0;
+          border-radius: 14px;
+          padding: 12px 18px;
+          background: var(--intro-primary);
+          color: white;
+          cursor: pointer;
+          font: inherit;
+          font-size: 14px;
+          font-weight: 800;
+          box-shadow: 0 12px 22px rgba(37, 99, 235, 0.22);
+          transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
+
+        .intro-button:hover:not(:disabled) {
+          transform: translateY(-1px);
+          background: var(--intro-primary-dark);
+          box-shadow: 0 16px 26px rgba(37, 99, 235, 0.26);
+        }
+
+        .intro-button:disabled {
+          cursor: not-allowed;
+          opacity: 0.55;
+          box-shadow: none;
+        }
+
+        .intro-button-secondary {
+          border: 1px solid var(--intro-border-strong);
+          background: white;
+          color: #334155;
+          box-shadow: none;
+        }
+
+        .intro-button-secondary:hover:not(:disabled) {
+          background: #f8fafc;
+          box-shadow: none;
+        }
+
+        .intro-message {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+          padding: 14px 16px;
+          border: 1px solid rgba(37, 99, 235, 0.16);
+          border-radius: 18px;
+          background: var(--intro-primary-soft);
+          color: #1e3a8a;
+          font-size: 13px;
+          line-height: 1.55;
+        }
+
+        .intro-message-icon {
+          display: grid;
+          place-items: center;
+          width: 24px;
+          height: 24px;
+          flex: 0 0 auto;
+          border-radius: 8px;
+          background: rgba(37, 99, 235, 0.15);
+          font-weight: 900;
+        }
+
+        .intro-job-meta {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .intro-meta-item {
+          padding: 14px;
+          border: 1px solid var(--intro-border);
+          border-radius: 16px;
+          background: #f8fafc;
+        }
+
+        .intro-meta-label {
+          display: block;
+          margin-bottom: 6px;
+          color: var(--intro-muted);
+          font-size: 12px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .intro-meta-value {
+          display: block;
+          min-width: 0;
+          color: #0f172a;
+          font-size: 13px;
+          font-weight: 800;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .intro-badge {
+          display: inline-flex;
+          align-items: center;
+          width: fit-content;
+          padding: 6px 10px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 900;
+          text-transform: capitalize;
+        }
+
+        .intro-badge-processing,
+        .intro-badge-queued {
+          background: var(--intro-yellow-soft);
+          color: #92400e;
+        }
+
+        .intro-badge-awaiting_supporting_papers {
+          background: var(--intro-primary-soft);
+          color: #1d4ed8;
+        }
+
+        .intro-badge-finished {
+          background: var(--intro-green-soft);
+          color: #166534;
+        }
+
+        .intro-badge-failed {
+          background: var(--intro-red-soft);
+          color: #991b1b;
+        }
+
+        .intro-badge-unknown {
+          background: #f1f5f9;
+          color: #475569;
+        }
+
+        .intro-stage-pill {
+          display: inline-flex;
+          align-items: center;
+          max-width: 100%;
+          padding: 6px 10px;
+          border: 1px solid var(--intro-border);
+          border-radius: 999px;
+          background: white;
+          color: #334155;
+          font-size: 12px;
+          font-weight: 800;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .intro-progress-text,
+        .intro-error-text {
+          margin-top: 14px;
+          padding: 14px 16px;
+          border-radius: 16px;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        .intro-progress-text {
+          border: 1px solid rgba(37, 99, 235, 0.14);
+          background: var(--intro-primary-soft);
+          color: #1e3a8a;
+        }
+
+        .intro-error-text {
+          border: 1px solid rgba(220, 38, 38, 0.16);
+          background: var(--intro-red-soft);
+          color: #991b1b;
+        }
+
+        .intro-candidate-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .intro-candidate {
+          padding: 16px;
+          border: 1px solid var(--intro-border);
+          border-radius: 18px;
+          background: #ffffff;
+        }
+
+        .intro-candidate-title {
+          margin: 0;
+          color: #0f172a;
+          font-size: 14px;
+          font-weight: 900;
+          line-height: 1.5;
+        }
+
+        .intro-candidate-meta {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin-top: 9px;
+          color: var(--intro-muted);
+          font-size: 12px;
+        }
+
+        .intro-candidate-reason {
+          margin: 11px 0 0;
+          color: #334155;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        .intro-candidate-url {
+          display: block;
+          margin-top: 10px;
+          color: var(--intro-primary-dark);
+          font-size: 12px;
+          word-break: break-all;
+        }
+
+        .intro-empty {
+          padding: 18px;
+          border: 1px dashed var(--intro-border-strong);
+          border-radius: 18px;
+          background: #f8fafc;
+          color: var(--intro-muted);
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        .intro-output {
+          padding: 22px;
+          border: 1px solid var(--intro-border);
+          border-radius: 18px;
+          background: #ffffff;
+          color: #172033;
+          font-family: Georgia, "Times New Roman", serif;
+          font-size: 16px;
+          line-height: 1.85;
+          white-space: pre-wrap;
+        }
+
+        .intro-details {
+          margin-top: 14px;
+          border: 1px solid var(--intro-border);
+          border-radius: 16px;
+          background: #ffffff;
+          overflow: hidden;
+        }
+
+        .intro-details summary {
+          cursor: pointer;
+          padding: 14px 16px;
+          color: #0f172a;
+          font-size: 13px;
+          font-weight: 900;
+          user-select: none;
+        }
+
+        .intro-code {
+          margin: 0;
+          padding: 0 16px 16px;
+          color: #334155;
+          font-size: 12px;
+          line-height: 1.55;
+          white-space: pre-wrap;
+          overflow: auto;
+        }
+
+        .intro-log-list {
+          display: grid;
+          gap: 10px;
+        }
+
+        .intro-log-item {
+          padding: 12px 14px;
+          border: 1px solid var(--intro-border);
+          border-radius: 14px;
+          background: #f8fafc;
+          color: #334155;
+          font-size: 12px;
+          line-height: 1.55;
+        }
+
+        .intro-log-step {
+          color: #0f172a;
+          font-weight: 900;
+        }
+
+        .intro-history-list {
+          display: grid;
+          gap: 10px;
+        }
+
+        .intro-history-item {
+          width: 100%;
+          text-align: left;
+          cursor: pointer;
+          padding: 14px;
+          border: 1px solid var(--intro-border);
+          border-radius: 16px;
+          background: #ffffff;
+          transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+        }
+
+        .intro-history-item:hover {
+          transform: translateY(-1px);
+          border-color: rgba(37, 99, 235, 0.35);
+          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        .intro-history-title {
+          color: #0f172a;
+          font-size: 13px;
+          font-weight: 900;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .intro-history-meta {
+          margin-top: 5px;
+          color: var(--intro-muted);
+          font-size: 12px;
+        }
+
+        .intro-sidebar {
+          position: sticky;
+          top: 20px;
+          display: grid;
+          gap: 22px;
+        }
+
+        @media (max-width: 920px) {
+          .intro-page {
+            padding: 20px 14px 40px;
           }
-        />
 
-        <label className="mb-2 block text-sm font-medium">
-          Main reference paper PDF
-        </label>
-        <input
-          type="file"
-          accept="application/pdf"
-          onChange={(event) => setMainFile(event.target.files?.[0] || null)}
-          className="mb-4 block w-full text-sm"
-        />
+          .intro-hero,
+          .intro-grid {
+            grid-template-columns: 1fr;
+          }
 
-        <button
-          onClick={handleSubmitReference}
-          disabled={loading}
-          className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {loading ? "Submitting..." : "Analyze main reference paper"}
-        </button>
-      </section>
+          .intro-hero {
+            padding: 24px;
+          }
 
-      {jobId && (
-        <section className="mb-8 rounded-xl border border-gray-200 p-5">
-          <h2 className="mb-4 text-xl font-semibold">Current job</h2>
+          .intro-job-meta {
+            grid-template-columns: 1fr;
+          }
 
-          <div className="mb-4 text-sm">
-            <div>
-              <span className="font-medium">Job ID:</span> {jobId}
+          .intro-file-box {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .intro-file-input {
+            max-width: 100%;
+          }
+
+          .intro-sidebar {
+            position: static;
+          }
+        }
+      `}</style>
+
+      <div className="intro-container">
+        <section className="intro-hero">
+          <div>
+            <div className="intro-kicker">
+              <span className="intro-kicker-dot" />
+              English-only academic writing pipeline
             </div>
-            <div>
-              <span className="font-medium">Status:</span>{" "}
-              {status || "loading"}
-            </div>
-            <div>
-              <span className="font-medium">Stage:</span> {stage || "-"}
-            </div>
-            {job?.progress_text && (
-              <div className="mt-2 rounded-lg bg-gray-50 p-3">
-                {job.progress_text}
-              </div>
-            )}
-            {job?.error_text && (
-              <div className="mt-2 rounded-lg bg-red-50 p-3 text-red-700">
-                {job.error_text}
-              </div>
-            )}
+            <h1 className="intro-title">English Introduction Writer</h1>
+            <p className="intro-subtitle">
+              Upload a main reference paper and your innovation points. The system analyzes
+              the reference paper, recommends same-problem papers, learns from three papers,
+              plans key citations, drafts the Introduction, and revises it through reviewer
+              feedback.
+            </p>
           </div>
 
-          <button
-            onClick={() => refreshJob(jobId)}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-          >
-            Refresh
-          </button>
+          <div className="intro-hero-side">
+            <div className="intro-step-mini">
+              <div className="intro-step-index">1</div>
+              <div>
+                <p className="intro-step-mini-title">Analyze reference paper</p>
+                <p className="intro-step-mini-text">Extract abstract, introduction, discussion, conclusion and references.</p>
+              </div>
+            </div>
+            <div className="intro-step-mini">
+              <div className="intro-step-index">2</div>
+              <div>
+                <p className="intro-step-mini-title">Upload two supporting papers</p>
+                <p className="intro-step-mini-text">Use same-problem papers to build field knowledge and citation needs.</p>
+              </div>
+            </div>
+            <div className="intro-step-mini">
+              <div className="intro-step-index">3</div>
+              <div>
+                <p className="intro-step-mini-title">Generate reviewed Introduction</p>
+                <p className="intro-step-mini-text">Writer and reviewer agents revise up to 10 rounds.</p>
+              </div>
+            </div>
+          </div>
         </section>
-      )}
 
-      {job?.status === "awaiting_supporting_papers" && (
-        <section className="mb-8 rounded-xl border border-gray-200 p-5">
-          <h2 className="mb-4 text-xl font-semibold">
-            Step 2: Upload two same-problem supporting papers
-          </h2>
+        <div className="intro-grid">
+          <div className="intro-stack">
+            {message && (
+              <div className="intro-message">
+                <div className="intro-message-icon">i</div>
+                <div>{message}</div>
+              </div>
+            )}
 
-          <div className="mb-6">
-            <h3 className="mb-3 text-lg font-semibold">
-              Same-problem candidate papers
-            </h3>
+            <section className="intro-card">
+              <div className="intro-card-header">
+                <div className="intro-card-title-wrap">
+                  <h2 className="intro-card-title">Step 1 · Main reference paper and innovation points</h2>
+                  <p className="intro-card-desc">
+                    Provide your research idea first. The generated Introduction will be English only.
+                  </p>
+                </div>
+              </div>
 
-            {Array.isArray(job.same_problem_candidates) &&
-            job.same_problem_candidates.length > 0 ? (
-              <div className="space-y-3">
-                {job.same_problem_candidates
-                  .slice(0, 10)
-                  .map((item: any, index: number) => (
-                    <div
-                      key={`${item?.title || "candidate"}-${index}`}
-                      className="rounded-lg border border-gray-200 p-4 text-sm"
-                    >
-                      <div className="font-semibold">
-                        {index + 1}. {item?.title || "Untitled"}
+              <div className="intro-card-body">
+                <div className="intro-form-grid">
+                  <div>
+                    <label className="intro-label">Innovation points</label>
+                    <textarea
+                      value={innovationText}
+                      onChange={(event) => setInnovationText(event.target.value)}
+                      className="intro-textarea"
+                      placeholder={
+                        "Describe your research problem, target task, method idea, and 2–4 innovation points. Example: We propose ... to address ... by ..."
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label className="intro-label">Main reference paper PDF</label>
+                    <div className="intro-file-box">
+                      <div className="intro-file-info">
+                        <p className="intro-file-title">Upload main PDF</p>
+                        <p className="intro-file-name">
+                          {mainFile ? mainFile.name : "No file selected yet"}
+                        </p>
                       </div>
-                      <div className="mt-1 text-gray-600">
-                        Year: {item?.year || "-"} | Relation:{" "}
-                        {item?.relation || "-"} | Confidence:{" "}
-                        {item?.confidence ?? "-"}
-                      </div>
-                      {item?.reason && <div className="mt-2">{item.reason}</div>}
-                      {item?.url && (
-                        <div className="mt-2 break-all text-blue-600">
-                          {item.url}
-                        </div>
-                      )}
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        onChange={(event) => setMainFile(event.target.files?.[0] || null)}
+                        className="intro-file-input"
+                      />
                     </div>
-                  ))}
+                  </div>
+
+                  <div className="intro-button-row">
+                    <button
+                      onClick={handleSubmitReference}
+                      disabled={loading}
+                      className="intro-button"
+                    >
+                      {loading ? "Submitting..." : "Analyze main reference paper"}
+                    </button>
+                  </div>
+                </div>
               </div>
-            ) : (
-              <div className="rounded-lg bg-gray-50 p-4 text-sm">
-                No candidate papers found. You can still upload two supporting
-                papers manually.
-              </div>
+            </section>
+
+            {jobId && (
+              <section className="intro-card">
+                <div className="intro-card-header">
+                  <div className="intro-card-title-wrap">
+                    <h2 className="intro-card-title">Current job</h2>
+                    <p className="intro-card-desc">The page refreshes automatically while the task is running.</p>
+                  </div>
+                  <button
+                    onClick={() => refreshJob(jobId)}
+                    className="intro-button intro-button-secondary"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="intro-card-body">
+                  <div className="intro-job-meta">
+                    <div className="intro-meta-item">
+                      <span className="intro-meta-label">Job ID</span>
+                      <span className="intro-meta-value" title={jobId}>{jobId}</span>
+                    </div>
+                    <div className="intro-meta-item">
+                      <span className="intro-meta-label">Status</span>
+                      <StatusBadge status={status || "loading"} />
+                    </div>
+                    <div className="intro-meta-item">
+                      <span className="intro-meta-label">Stage</span>
+                      <StagePill stage={stage || "-"} />
+                    </div>
+                  </div>
+
+                  {job?.progress_text && (
+                    <div className="intro-progress-text">{job.progress_text}</div>
+                  )}
+                  {job?.error_text && (
+                    <div className="intro-error-text">{job.error_text}</div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {job?.status === "awaiting_supporting_papers" && (
+              <section className="intro-card">
+                <div className="intro-card-header">
+                  <div className="intro-card-title-wrap">
+                    <h2 className="intro-card-title">Step 2 · Upload two same-problem supporting papers</h2>
+                    <p className="intro-card-desc">
+                      Review the recommended candidates, then upload two supporting PDFs manually.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="intro-card-body">
+                  <div className="intro-candidate-list">
+                    {Array.isArray(job.same_problem_candidates) &&
+                    job.same_problem_candidates.length > 0 ? (
+                      job.same_problem_candidates.slice(0, 10).map((item: any, index: number) => (
+                        <div
+                          key={`${item?.title || "candidate"}-${index}`}
+                          className="intro-candidate"
+                        >
+                          <p className="intro-candidate-title">
+                            {index + 1}. {item?.title || "Untitled"}
+                          </p>
+                          <div className="intro-candidate-meta">
+                            <span>Year: {item?.year || "-"}</span>
+                            <span>Relation: {item?.relation || "-"}</span>
+                            <span>Confidence: {item?.confidence ?? "-"}</span>
+                          </div>
+                          {item?.reason && (
+                            <p className="intro-candidate-reason">{item.reason}</p>
+                          )}
+                          {item?.url && (
+                            <a
+                              href={item.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="intro-candidate-url"
+                            >
+                              {item.url}
+                            </a>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="intro-empty">
+                        No candidate papers found. You can still upload two supporting papers manually.
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ height: 18 }} />
+
+                  <div className="intro-form-grid">
+                    <div>
+                      <label className="intro-label">Supporting paper 1 PDF</label>
+                      <div className="intro-file-box">
+                        <div className="intro-file-info">
+                          <p className="intro-file-title">Upload first supporting PDF</p>
+                          <p className="intro-file-name">
+                            {supportFile1 ? supportFile1.name : "No file selected yet"}
+                          </p>
+                        </div>
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          onChange={(event) => setSupportFile1(event.target.files?.[0] || null)}
+                          className="intro-file-input"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="intro-label">Supporting paper 2 PDF</label>
+                      <div className="intro-file-box">
+                        <div className="intro-file-info">
+                          <p className="intro-file-title">Upload second supporting PDF</p>
+                          <p className="intro-file-name">
+                            {supportFile2 ? supportFile2.name : "No file selected yet"}
+                          </p>
+                        </div>
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          onChange={(event) => setSupportFile2(event.target.files?.[0] || null)}
+                          className="intro-file-input"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="intro-button-row">
+                      <button
+                        onClick={handleSubmitSupporting}
+                        disabled={loading}
+                        className="intro-button"
+                      >
+                        {loading ? "Submitting..." : "Generate English Introduction"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {job?.status === "finished" && (
+              <section className="intro-card">
+                <div className="intro-card-header">
+                  <div className="intro-card-title-wrap">
+                    <h2 className="intro-card-title">Final English Introduction</h2>
+                    <p className="intro-card-desc">Reviewed and revised by the Introduction pipeline.</p>
+                  </div>
+                  <button
+                    onClick={downloadIntroduction}
+                    className="intro-button intro-button-secondary"
+                  >
+                    Download Markdown
+                  </button>
+                </div>
+
+                <div className="intro-card-body">
+                  <div className="intro-output">
+                    {job.final_introduction || "No introduction returned."}
+                  </div>
+
+                  <details className="intro-details">
+                    <summary>Final references / citation pool</summary>
+                    <pre className="intro-code">
+                      {formatJson(job.final_references || job.citation_pool || [])}
+                    </pre>
+                  </details>
+
+                  <details className="intro-details">
+                    <summary>Reviewer history</summary>
+                    <pre className="intro-code">{formatJson(job.review_history || [])}</pre>
+                  </details>
+
+                  <details className="intro-details">
+                    <summary>Field knowledge</summary>
+                    <pre className="intro-code">{formatJson(job.field_knowledge || {})}</pre>
+                  </details>
+                </div>
+              </section>
             )}
           </div>
 
-          <label className="mb-2 block text-sm font-medium">
-            Supporting paper 1 PDF
-          </label>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(event) => setSupportFile1(event.target.files?.[0] || null)}
-            className="mb-4 block w-full text-sm"
-          />
-
-          <label className="mb-2 block text-sm font-medium">
-            Supporting paper 2 PDF
-          </label>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(event) => setSupportFile2(event.target.files?.[0] || null)}
-            className="mb-4 block w-full text-sm"
-          />
-
-          <button
-            onClick={handleSubmitSupporting}
-            disabled={loading}
-            className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {loading ? "Submitting..." : "Generate English Introduction"}
-          </button>
-        </section>
-      )}
-
-      {job?.status === "finished" && (
-        <section className="mb-8 rounded-xl border border-gray-200 p-5">
-          <h2 className="mb-4 text-xl font-semibold">
-            Final English Introduction
-          </h2>
-
-          <div className="mb-4 whitespace-pre-wrap rounded-lg border border-gray-200 bg-white p-5 text-sm leading-7">
-            {job.final_introduction || "No introduction returned."}
-          </div>
-
-          <button
-            onClick={downloadIntroduction}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-          >
-            Download Markdown
-          </button>
-
-          <details className="mt-6 rounded-lg border border-gray-200 p-4">
-            <summary className="cursor-pointer font-medium">
-              Final references / citation pool
-            </summary>
-            <pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">
-              {formatJson(job.final_references || job.citation_pool || [])}
-            </pre>
-          </details>
-
-          <details className="mt-4 rounded-lg border border-gray-200 p-4">
-            <summary className="cursor-pointer font-medium">
-              Reviewer history
-            </summary>
-            <pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">
-              {formatJson(job.review_history || [])}
-            </pre>
-          </details>
-
-          <details className="mt-4 rounded-lg border border-gray-200 p-4">
-            <summary className="cursor-pointer font-medium">
-              Field knowledge
-            </summary>
-            <pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">
-              {formatJson(job.field_knowledge || {})}
-            </pre>
-          </details>
-        </section>
-      )}
-
-      {jobId && (
-        <section className="mb-8 rounded-xl border border-gray-200 p-5">
-          <h2 className="mb-4 text-xl font-semibold">Execution logs</h2>
-
-          {logs.length > 0 ? (
-            <div className="space-y-2 text-sm">
-              {logs.map((log, index) => (
-                <div key={index} className="rounded-lg bg-gray-50 p-3">
-                  <span className="font-medium">
-                    [{log?.step_no ?? index + 1}]
-                  </span>{" "}
-                  {log?.stage || "-"} - {log?.status || "-"}:{" "}
-                  {log?.message || ""}
+          <aside className="intro-sidebar">
+            <section className="intro-card">
+              <div className="intro-card-header">
+                <div className="intro-card-title-wrap">
+                  <h2 className="intro-card-title">Introduction history</h2>
+                  <p className="intro-card-desc">Recent Introduction jobs for current browser user.</p>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-sm text-gray-500">No logs loaded.</div>
-          )}
-        </section>
-      )}
+              </div>
+              <div className="intro-card-body">
+                {history.length > 0 ? (
+                  <div className="intro-history-list">
+                    {history.map((item: any) => (
+                      <button
+                        key={item.id}
+                        onClick={() => setJobId(item.id)}
+                        className="intro-history-item"
+                      >
+                        <div className="intro-history-title">
+                          {shortText(item.main_pdf_name, "Untitled")}
+                        </div>
+                        <div className="intro-history-meta">
+                          {shortText(item.status)} · {shortText(item.stage)} ·{" "}
+                          {shortText(item.created_at)}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="intro-empty">No introduction jobs found.</div>
+                )}
+              </div>
+            </section>
 
-      <section className="rounded-xl border border-gray-200 p-5">
-        <h2 className="mb-4 text-xl font-semibold">Introduction history</h2>
-
-        {history.length > 0 ? (
-          <div className="space-y-2">
-            {history.map((item: any) => (
-              <button
-                key={item.id}
-                onClick={() => setJobId(item.id)}
-                className="block w-full rounded-lg border border-gray-200 p-3 text-left text-sm hover:bg-gray-50"
-              >
-                <div className="font-medium">
-                  {item.main_pdf_name || "Untitled"}
+            {jobId && (
+              <section className="intro-card">
+                <div className="intro-card-header">
+                  <div className="intro-card-title-wrap">
+                    <h2 className="intro-card-title">Execution logs</h2>
+                    <p className="intro-card-desc">Backend agent progress and review steps.</p>
+                  </div>
                 </div>
-                <div className="text-gray-600">
-                  {item.status || "-"} | {item.stage || "-"} |{" "}
-                  {item.created_at || ""}
+                <div className="intro-card-body">
+                  {logs.length > 0 ? (
+                    <div className="intro-log-list">
+                      {logs.map((log, index) => (
+                        <div key={index} className="intro-log-item">
+                          <span className="intro-log-step">
+                            [{log?.step_no ?? index + 1}]
+                          </span>{" "}
+                          {log?.stage || "-"} · {log?.status || "-"}
+                          <br />
+                          {log?.message || ""}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="intro-empty">No logs loaded.</div>
+                  )}
                 </div>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm text-gray-500">
-            No introduction jobs found.
-          </div>
-        )}
-      </section>
+              </section>
+            )}
+          </aside>
+        </div>
+      </div>
     </main>
   );
 }
