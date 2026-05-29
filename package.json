@@ -24,7 +24,8 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "@supabase/supabase-js": "^2.84.0"
   },
   "devDependencies": {}
 }
