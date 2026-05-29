@@ -50,7 +50,7 @@ export async function introRpc(
   const data = await resp.json().catch(() => ({}));
 
   if (!resp.ok) {
-    throw new Error(data?.message || `Introduction RPC 请求失败：${resp.status}`);
+    throw new Error(data?.message || `Introduction RPC 请求失败: ${resp.status}`);
   }
 
   return data;
@@ -104,8 +104,8 @@ export async function submitReferencePaper(params: {
   formData.append("source_name", params.sourceName || params.file.name);
   formData.append("file", params.file, params.file.name);
 
-  // 大 PDF 上传必须绕过 Vercel API Route，否则容易触发 4.5 MB payload 限制并返回 413。
-  // 配置 NEXT_PUBLIC_INTRO_SUBMIT_REFERENCE_URL 后，浏览器会直接上传到 Modal。
+  // Large PDF upload must bypass Vercel API Route because Vercel Functions have a 4.5 MB payload limit.
+  // If NEXT_PUBLIC_INTRO_SUBMIT_REFERENCE_URL is configured, upload directly to Modal.
   const directUrl = getDirectReferenceUploadUrl();
   const uploadUrl = directUrl || "/api/introduction/reference";
 
@@ -117,7 +117,9 @@ export async function submitReferencePaper(params: {
   const data = await resp.json().catch(() => ({}));
 
   if (!resp.ok) {
-    throw new Error(data?.message || `主参考论文上传失败：${resp.status}`);
+    throw new Error(
+      data?.message || `主参考论文上传失败: ${resp.status}`
+    );
   }
 
   return data;
@@ -137,8 +139,8 @@ export async function submitSupportingPapers(params: {
   formData.append("file1", params.file1, params.file1.name);
   formData.append("file2", params.file2, params.file2.name);
 
-  // 大 PDF 上传必须绕过 Vercel API Route，否则容易触发 4.5 MB payload 限制并返回 413。
-  // 配置 NEXT_PUBLIC_INTRO_SUBMIT_SUPPORTING_URL 后，浏览器会直接上传到 Modal。
+  // Large PDF upload must bypass Vercel API Route because Vercel Functions have a 4.5 MB payload limit.
+  // If NEXT_PUBLIC_INTRO_SUBMIT_SUPPORTING_URL is configured, upload directly to Modal.
   const directUrl = getDirectSupportingUploadUrl();
   const uploadUrl = directUrl || "/api/introduction/supporting";
 
@@ -150,7 +152,9 @@ export async function submitSupportingPapers(params: {
   const data = await resp.json().catch(() => ({}));
 
   if (!resp.ok) {
-    throw new Error(data?.message || `补充论文上传失败：${resp.status}`);
+    throw new Error(
+      data?.message || `补充论文上传失败: ${resp.status}`
+    );
   }
 
   return data;
