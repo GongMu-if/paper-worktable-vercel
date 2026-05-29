@@ -50,12 +50,19 @@ function getStorageBucket() {
 }
 
 function sanitizeFileName(name: string) {
-  const cleaned = (name || "paper.pdf")
-    .replace(/[\\/:*?"<>|#%{}^~[\]`]/g, "_")
-    .replace(/\s+/g, "_")
-    .slice(0, 120);
+  const rawName = name || "paper.pdf";
+  const withoutPdfExt = rawName.toLowerCase().endsWith(".pdf")
+    ? rawName.slice(0, -4)
+    : rawName;
 
-  return cleaned.toLowerCase().endsWith(".pdf") ? cleaned : `${cleaned}.pdf`;
+  const cleaned = withoutPdfExt
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+
+  return `${cleaned || "paper"}.pdf`;
 }
 
 function createStoragePath(file: File, role: "main" | "support") {
