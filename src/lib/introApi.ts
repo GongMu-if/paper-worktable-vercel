@@ -81,7 +81,7 @@ async function createSignedUpload(path: string, contentType = "application/pdf")
   const data = await resp.json().catch(() => ({}));
 
   if (!resp.ok || data?.status !== "ok") {
-    throw new Error(data?.message || `创建上传签名失败: ${resp.status}`);
+    throw new Error(data?.message || `创建上传签名失败：${resp.status}`);
   }
 
   return data.data as { path: string; token: string; signedUrl?: string };
@@ -101,7 +101,7 @@ async function createSignedDownload(path: string) {
   const data = await resp.json().catch(() => ({}));
 
   if (!resp.ok || data?.status !== "ok") {
-    throw new Error(data?.message || `创建下载签名失败: ${resp.status}`);
+    throw new Error(data?.message || `创建下载签名失败：${resp.status}`);
   }
 
   return data.data as { path: string; signedUrl: string };
@@ -120,7 +120,7 @@ async function uploadPdfToStorage(file: File, role: "main" | "support") {
     });
 
   if (uploadError) {
-    throw new Error(`PDF 上传到对象存储失败: ${uploadError.message}`);
+    throw new Error(`PDF 上传到对象存储失败：${uploadError.message}`);
   }
 
   const downloadSign = await createSignedDownload(uploadSign.path || path);
@@ -140,7 +140,7 @@ async function postForm(url: string, formData: FormData) {
   const data = await resp.json().catch(() => ({}));
 
   if (!resp.ok) {
-    throw new Error(data?.message || `请求失败: ${resp.status}`);
+    throw new Error(data?.message || `请求失败：${resp.status}`);
   }
 
   return data;
@@ -224,24 +224,42 @@ export async function submitReferencePaper(params: {
 
 export async function submitSupportingPapers(params: {
   jobId: string;
-  file1: File;
-  file2: File;
+  files?: File[];
+  file1?: File;
+  file2?: File;
   supportName1?: string;
   supportName2?: string;
 }) {
-  const [uploaded1, uploaded2] = await Promise.all([
-    uploadPdfToStorage(params.file1, "support"),
-    uploadPdfToStorage(params.file2, "support"),
-  ]);
+  const files = params.files && params.files.length > 0
+    ? params.files
+    : [params.file1, params.file2].filter((file): file is File => Boolean(file));
+
+  if (files.length < 2 || files.length > 6) {
+    throw new Error(`请上传 2-6 篇补充论文。当前数量：${files.length}`);
+  }
+
+  const uploaded = await Promise.all(
+    files.map(async (file) => {
+      const item = await uploadPdfToStorage(file, "support");
+      return {
+        name: file.name,
+        file_url: item.signedUrl,
+        storage_path: item.path,
+      };
+    })
+  );
 
   const formData = new FormData();
   formData.append("job_id", params.jobId);
-  formData.append("support_name_1", params.supportName1 || params.file1.name);
-  formData.append("support_name_2", params.supportName2 || params.file2.name);
-  formData.append("file_url_1", uploaded1.signedUrl);
-  formData.append("file_url_2", uploaded2.signedUrl);
-  formData.append("storage_path_1", uploaded1.path);
-  formData.append("storage_path_2", uploaded2.path);
+  formData.append("supporting_files", JSON.stringify(uploaded));
+
+  // 兼容旧的两文件代理字段；新后端优先读取 supporting_files。
+  formData.append("support_name_1", params.supportName1 || uploaded[0]?.name || files[0]?.name || "");
+  formData.append("support_name_2", params.supportName2 || uploaded[1]?.name || files[1]?.name || "");
+  formData.append("file_url_1", uploaded[0]?.file_url || "");
+  formData.append("file_url_2", uploaded[1]?.file_url || "");
+  formData.append("storage_path_1", uploaded[0]?.storage_path || "");
+  formData.append("storage_path_2", uploaded[1]?.storage_path || "");
 
   return postForm("/api/introduction/supporting-urls", formData);
 }
