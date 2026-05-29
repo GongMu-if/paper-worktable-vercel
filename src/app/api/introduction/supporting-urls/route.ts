@@ -23,6 +23,9 @@ export async function POST(request: Request) {
 
     const formData = new FormData();
     formData.append("job_id", String(incomingForm.get("job_id") || ""));
+    formData.append("supporting_files", String(incomingForm.get("supporting_files") || "[]"));
+
+    // 兼容旧的两文件字段；新后端优先读取 supporting_files。
     formData.append("support_name_1", String(incomingForm.get("support_name_1") || ""));
     formData.append("support_name_2", String(incomingForm.get("support_name_2") || ""));
     formData.append("file_url_1", String(incomingForm.get("file_url_1") || ""));
