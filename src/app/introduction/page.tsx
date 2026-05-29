@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getIntroJob,
   getIntroLogs,
@@ -34,13 +34,48 @@ function shortText(value: string | undefined | null, fallback = "-") {
   return text || fallback;
 }
 
-function StatusBadge({ status }: { status?: string }) {
-  const value = String(status || "unknown").toLowerCase();
-  return <span className={`intro-badge intro-badge-${value}`}>{status || "unknown"}</span>;
+function statusText(status?: string) {
+  const value = String(status || "").toLowerCase();
+  const map: Record<string, string> = {
+    created: "已创建",
+    queued: "排队中",
+    processing: "处理中",
+    awaiting_supporting_papers: "等待上传补充论文",
+    finished: "已完成",
+    failed: "失败",
+    loading: "加载中",
+    unknown: "未知",
+  };
+  return map[value] || status || "未知";
 }
 
-function StagePill({ stage }: { stage?: string }) {
-  return <span className="intro-stage-pill">{stage || "waiting"}</span>;
+function stageText(stage?: string) {
+  const value = String(stage || "").toLowerCase();
+  const map: Record<string, string> = {
+    created: "已创建",
+    reference_submitted: "主论文已提交",
+    reference_analysis: "主参考论文分析",
+    same_problem_search: "同问题论文检索",
+    awaiting_supporting_papers: "等待上传补充论文",
+    supporting_paper_analysis: "补充论文分析",
+    field_knowledge: "领域知识综合",
+    citation_planning: "引用规划",
+    introduction_writing: "英文 Introduction 写作",
+    review_revision: "审稿与修改",
+    finished: "已完成",
+    reference_stage_failed: "主参考论文阶段失败",
+    generation_stage_failed: "生成阶段失败",
+  };
+  return map[value] || stage || "等待中";
+}
+
+function 状态Badge({ status }: { status?: string }) {
+  const value = String(status || "unknown").toLowerCase();
+  return <span className={`intro-badge intro-badge-${value}`}>{statusText(status)}</span>;
+}
+
+function 阶段Pill({ stage }: { stage?: string }) {
+  return <span className="intro-stage-pill">{stageText(stage)}</span>;
 }
 
 export default function IntroductionWriterPage() {
@@ -58,6 +93,10 @@ export default function IntroductionWriterPage() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  const mainFileInputRef = useRef<HTMLInputElement | null>(null);
+  const supportFile1InputRef = useRef<HTMLInputElement | null>(null);
+  const supportFile2InputRef = useRef<HTMLInputElement | null>(null);
 
   const status = job?.status || "";
   const stage = job?.stage || "";
@@ -111,14 +150,33 @@ export default function IntroductionWriterPage() {
     return () => window.clearInterval(timer);
   }, [shouldPoll, jobId]);
 
+  function clearMainInputs() {
+    setInnovationText("");
+    setMainFile(null);
+    if (mainFileInputRef.current) {
+      mainFileInputRef.current.value = "";
+    }
+  }
+
+  function clearSupportingInputs() {
+    setSupportFile1(null);
+    setSupportFile2(null);
+    if (supportFile1InputRef.current) {
+      supportFile1InputRef.current.value = "";
+    }
+    if (supportFile2InputRef.current) {
+      supportFile2InputRef.current.value = "";
+    }
+  }
+
   async function handleSubmitReference() {
     if (!mainFile) {
-      setMessage("Please upload the main reference paper PDF.");
+      setMessage("请上传主参考论文 PDF。");
       return;
     }
 
     if (!innovationText.trim()) {
-      setMessage("Please enter your innovation points.");
+      setMessage("请先填写创新点。");
       return;
     }
 
@@ -135,10 +193,11 @@ export default function IntroductionWriterPage() {
 
       if (result?.job_id) {
         setJobId(result.job_id);
-        setMessage("Main reference paper submitted. The system is analyzing it.");
+        setMessage("主参考论文已提交，系统正在分析。");
+        clearMainInputs();
         await refreshHistory(userId);
       } else {
-        setMessage(result?.message || "Submit succeeded but no job_id returned.");
+        setMessage(result?.message || "提交成功，但后端未返回任务 ID。");
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -149,12 +208,12 @@ export default function IntroductionWriterPage() {
 
   async function handleSubmitSupporting() {
     if (!jobId) {
-      setMessage("Missing job_id.");
+      setMessage("缺少任务 ID。");
       return;
     }
 
     if (!supportFile1 || !supportFile2) {
-      setMessage("Please upload two supporting same-problem papers.");
+      setMessage("请上传两篇同问题补充论文。");
       return;
     }
 
@@ -168,7 +227,8 @@ export default function IntroductionWriterPage() {
         file2: supportFile2,
       });
 
-      setMessage("Supporting papers submitted. The system is generating the English Introduction.");
+      setMessage("补充论文已提交，系统正在学习三篇论文并生成英文 Introduction。");
+      clearSupportingInputs();
       await refreshJob(jobId);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -228,7 +288,7 @@ export default function IntroductionWriterPage() {
           color: var(--intro-text);
           font-family:
             Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-            "Segoe UI", sans-serif;
+            "Segoe UI", "Microsoft YaHei", sans-serif;
         }
 
         .intro-page {
@@ -851,14 +911,11 @@ export default function IntroductionWriterPage() {
           <div>
             <div className="intro-kicker">
               <span className="intro-kicker-dot" />
-              English-only academic writing pipeline
+              英文 Introduction 写作链路
             </div>
-            <h1 className="intro-title">English Introduction Writer</h1>
+            <h1 className="intro-title">英文 Introduction 生成器</h1>
             <p className="intro-subtitle">
-              Upload a main reference paper and your innovation points. The system analyzes
-              the reference paper, recommends same-problem papers, learns from three papers,
-              plans key citations, drafts the Introduction, and revises it through reviewer
-              feedback.
+              上传一篇主参考论文和你的创新点。系统会分析主论文、推荐同问题论文、学习三篇论文的领域知识、规划关键引用，并经过审稿修改后输出英文 Introduction。
             </p>
           </div>
 
@@ -866,22 +923,22 @@ export default function IntroductionWriterPage() {
             <div className="intro-step-mini">
               <div className="intro-step-index">1</div>
               <div>
-                <p className="intro-step-mini-title">Analyze reference paper</p>
-                <p className="intro-step-mini-text">Extract abstract, introduction, discussion, conclusion and references.</p>
+                <p className="intro-step-mini-title">分析主参考论文</p>
+                <p className="intro-step-mini-text">提取摘要、引言、讨论、结论和参考文献。</p>
               </div>
             </div>
             <div className="intro-step-mini">
               <div className="intro-step-index">2</div>
               <div>
-                <p className="intro-step-mini-title">Upload two supporting papers</p>
-                <p className="intro-step-mini-text">Use same-problem papers to build field knowledge and citation needs.</p>
+                <p className="intro-step-mini-title">上传两篇补充论文</p>
+                <p className="intro-step-mini-text">用于学习同问题领域知识和关键引用需求。</p>
               </div>
             </div>
             <div className="intro-step-mini">
               <div className="intro-step-index">3</div>
               <div>
-                <p className="intro-step-mini-title">Generate reviewed Introduction</p>
-                <p className="intro-step-mini-text">Writer and reviewer agents revise up to 10 rounds.</p>
+                <p className="intro-step-mini-title">生成英文 Introduction</p>
+                <p className="intro-step-mini-text">写作 Agent 与审稿 Agent 最多迭代 10 轮。</p>
               </div>
             </div>
           </div>
@@ -899,9 +956,9 @@ export default function IntroductionWriterPage() {
             <section className="intro-card">
               <div className="intro-card-header">
                 <div className="intro-card-title-wrap">
-                  <h2 className="intro-card-title">Step 1 · Main reference paper and innovation points</h2>
+                  <h2 className="intro-card-title">步骤 1 · 主参考论文与创新点</h2>
                   <p className="intro-card-desc">
-                    Provide your research idea first. The generated Introduction will be English only.
+                    这里可以填写中文创新点；最终生成的 Introduction 只会是英文。
                   </p>
                 </div>
               </div>
@@ -909,27 +966,28 @@ export default function IntroductionWriterPage() {
               <div className="intro-card-body">
                 <div className="intro-form-grid">
                   <div>
-                    <label className="intro-label">Innovation points</label>
+                    <label className="intro-label">创新点</label>
                     <textarea
                       value={innovationText}
                       onChange={(event) => setInnovationText(event.target.value)}
                       className="intro-textarea"
                       placeholder={
-                        "Describe your research problem, target task, method idea, and 2–4 innovation points. Example: We propose ... to address ... by ..."
+                        "请描述你的研究问题、任务对象、方法思路和 2–4 个创新点。例如：本文针对……问题，提出……方法，以解决……不足。"
                       }
                     />
                   </div>
 
                   <div>
-                    <label className="intro-label">Main reference paper PDF</label>
+                    <label className="intro-label">主参考论文 PDF</label>
                     <div className="intro-file-box">
                       <div className="intro-file-info">
-                        <p className="intro-file-title">Upload main PDF</p>
+                        <p className="intro-file-title">上传主参考论文</p>
                         <p className="intro-file-name">
-                          {mainFile ? mainFile.name : "No file selected yet"}
+                          {mainFile ? mainFile.name : "尚未选择文件"}
                         </p>
                       </div>
                       <input
+                        ref={mainFileInputRef}
                         type="file"
                         accept="application/pdf"
                         onChange={(event) => setMainFile(event.target.files?.[0] || null)}
@@ -944,7 +1002,7 @@ export default function IntroductionWriterPage() {
                       disabled={loading}
                       className="intro-button"
                     >
-                      {loading ? "Submitting..." : "Analyze main reference paper"}
+                      {loading ? "提交中..." : "分析主参考论文"}
                     </button>
                   </div>
                 </div>
@@ -955,30 +1013,30 @@ export default function IntroductionWriterPage() {
               <section className="intro-card">
                 <div className="intro-card-header">
                   <div className="intro-card-title-wrap">
-                    <h2 className="intro-card-title">Current job</h2>
-                    <p className="intro-card-desc">The page refreshes automatically while the task is running.</p>
+                    <h2 className="intro-card-title">当前任务</h2>
+                    <p className="intro-card-desc">任务运行中页面会自动刷新状态。</p>
                   </div>
                   <button
                     onClick={() => refreshJob(jobId)}
                     className="intro-button intro-button-secondary"
                   >
-                    Refresh
+                    刷新
                   </button>
                 </div>
 
                 <div className="intro-card-body">
                   <div className="intro-job-meta">
                     <div className="intro-meta-item">
-                      <span className="intro-meta-label">Job ID</span>
+                      <span className="intro-meta-label">任务 ID</span>
                       <span className="intro-meta-value" title={jobId}>{jobId}</span>
                     </div>
                     <div className="intro-meta-item">
-                      <span className="intro-meta-label">Status</span>
-                      <StatusBadge status={status || "loading"} />
+                      <span className="intro-meta-label">状态</span>
+                      <状态Badge status={status || "loading"} />
                     </div>
                     <div className="intro-meta-item">
-                      <span className="intro-meta-label">Stage</span>
-                      <StagePill stage={stage || "-"} />
+                      <span className="intro-meta-label">阶段</span>
+                      <阶段Pill stage={stage || "-"} />
                     </div>
                   </div>
 
@@ -996,9 +1054,9 @@ export default function IntroductionWriterPage() {
               <section className="intro-card">
                 <div className="intro-card-header">
                   <div className="intro-card-title-wrap">
-                    <h2 className="intro-card-title">Step 2 · Upload two same-problem supporting papers</h2>
+                    <h2 className="intro-card-title">步骤 2 · 上传两篇同问题补充论文</h2>
                     <p className="intro-card-desc">
-                      Review the recommended candidates, then upload two supporting PDFs manually.
+                      可以参考系统推荐结果，也可以手动上传你认为最合适的两篇同问题论文。
                     </p>
                   </div>
                 </div>
@@ -1013,15 +1071,18 @@ export default function IntroductionWriterPage() {
                           className="intro-candidate"
                         >
                           <p className="intro-candidate-title">
-                            {index + 1}. {item?.title || "Untitled"}
+                            {index + 1}. {item?.title || "未命名任务"}
                           </p>
                           <div className="intro-candidate-meta">
-                            <span>Year: {item?.year || "-"}</span>
-                            <span>Relation: {item?.relation || "-"}</span>
-                            <span>Confidence: {item?.confidence ?? "-"}</span>
+                            <span>年份：{item?.year || "-"}</span>
+                            <span>关系：{item?.relation || "-"}</span>
+                            <span>置信度：{item?.confidence ?? "-"}</span>
                           </div>
                           {item?.reason && (
                             <p className="intro-candidate-reason">{item.reason}</p>
+                          )}
+                          {item?.how_user_should_use_it && (
+                            <p className="intro-candidate-reason">{item.how_user_should_use_it}</p>
                           )}
                           {item?.url && (
                             <a
@@ -1037,7 +1098,7 @@ export default function IntroductionWriterPage() {
                       ))
                     ) : (
                       <div className="intro-empty">
-                        No candidate papers found. You can still upload two supporting papers manually.
+                        没有检索到候选论文。你仍然可以手动上传两篇补充论文。
                       </div>
                     )}
                   </div>
@@ -1046,15 +1107,16 @@ export default function IntroductionWriterPage() {
 
                   <div className="intro-form-grid">
                     <div>
-                      <label className="intro-label">Supporting paper 1 PDF</label>
+                      <label className="intro-label">补充论文 1 PDF</label>
                       <div className="intro-file-box">
                         <div className="intro-file-info">
-                          <p className="intro-file-title">Upload first supporting PDF</p>
+                          <p className="intro-file-title">上传第一篇补充论文</p>
                           <p className="intro-file-name">
-                            {supportFile1 ? supportFile1.name : "No file selected yet"}
+                            {supportFile1 ? supportFile1.name : "尚未选择文件"}
                           </p>
                         </div>
                         <input
+                          ref={supportFile1InputRef}
                           type="file"
                           accept="application/pdf"
                           onChange={(event) => setSupportFile1(event.target.files?.[0] || null)}
@@ -1064,15 +1126,16 @@ export default function IntroductionWriterPage() {
                     </div>
 
                     <div>
-                      <label className="intro-label">Supporting paper 2 PDF</label>
+                      <label className="intro-label">补充论文 2 PDF</label>
                       <div className="intro-file-box">
                         <div className="intro-file-info">
-                          <p className="intro-file-title">Upload second supporting PDF</p>
+                          <p className="intro-file-title">上传第二篇补充论文</p>
                           <p className="intro-file-name">
-                            {supportFile2 ? supportFile2.name : "No file selected yet"}
+                            {supportFile2 ? supportFile2.name : "尚未选择文件"}
                           </p>
                         </div>
                         <input
+                          ref={supportFile2InputRef}
                           type="file"
                           accept="application/pdf"
                           onChange={(event) => setSupportFile2(event.target.files?.[0] || null)}
@@ -1087,7 +1150,7 @@ export default function IntroductionWriterPage() {
                         disabled={loading}
                         className="intro-button"
                       >
-                        {loading ? "Submitting..." : "Generate English Introduction"}
+                        {loading ? "提交中..." : "生成英文 Introduction"}
                       </button>
                     </div>
                   </div>
@@ -1099,36 +1162,36 @@ export default function IntroductionWriterPage() {
               <section className="intro-card">
                 <div className="intro-card-header">
                   <div className="intro-card-title-wrap">
-                    <h2 className="intro-card-title">Final English Introduction</h2>
-                    <p className="intro-card-desc">Reviewed and revised by the Introduction pipeline.</p>
+                    <h2 className="intro-card-title">最终英文 Introduction</h2>
+                    <p className="intro-card-desc">以下正文保持英文；审稿记录、引用规划和领域知识为中文辅助信息。</p>
                   </div>
                   <button
                     onClick={downloadIntroduction}
                     className="intro-button intro-button-secondary"
                   >
-                    Download Markdown
+                    下载 Markdown
                   </button>
                 </div>
 
                 <div className="intro-card-body">
                   <div className="intro-output">
-                    {job.final_introduction || "No introduction returned."}
+                    {job.final_introduction || "暂无 Introduction 输出。"}
                   </div>
 
                   <details className="intro-details">
-                    <summary>Final references / citation pool</summary>
+                    <summary>最终引用 / 引用池</summary>
                     <pre className="intro-code">
                       {formatJson(job.final_references || job.citation_pool || [])}
                     </pre>
                   </details>
 
                   <details className="intro-details">
-                    <summary>Reviewer history</summary>
+                    <summary>审稿历史</summary>
                     <pre className="intro-code">{formatJson(job.review_history || [])}</pre>
                   </details>
 
                   <details className="intro-details">
-                    <summary>Field knowledge</summary>
+                    <summary>领域知识</summary>
                     <pre className="intro-code">{formatJson(job.field_knowledge || {})}</pre>
                   </details>
                 </div>
@@ -1140,8 +1203,8 @@ export default function IntroductionWriterPage() {
             <section className="intro-card">
               <div className="intro-card-header">
                 <div className="intro-card-title-wrap">
-                  <h2 className="intro-card-title">Introduction history</h2>
-                  <p className="intro-card-desc">Recent Introduction jobs for current browser user.</p>
+                  <h2 className="intro-card-title">历史任务</h2>
+                  <p className="intro-card-desc">当前浏览器用户的 Introduction 任务记录。</p>
                 </div>
               </div>
               <div className="intro-card-body">
@@ -1154,17 +1217,17 @@ export default function IntroductionWriterPage() {
                         className="intro-history-item"
                       >
                         <div className="intro-history-title">
-                          {shortText(item.main_pdf_name, "Untitled")}
+                          {shortText(item.main_pdf_name, "未命名任务")}
                         </div>
                         <div className="intro-history-meta">
-                          {shortText(item.status)} · {shortText(item.stage)} ·{" "}
+                          {statusText(item.status)} · {stageText(item.stage)} ·{" "}
                           {shortText(item.created_at)}
                         </div>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="intro-empty">No introduction jobs found.</div>
+                  <div className="intro-empty">暂无 Introduction 任务。</div>
                 )}
               </div>
             </section>
@@ -1173,8 +1236,8 @@ export default function IntroductionWriterPage() {
               <section className="intro-card">
                 <div className="intro-card-header">
                   <div className="intro-card-title-wrap">
-                    <h2 className="intro-card-title">Execution logs</h2>
-                    <p className="intro-card-desc">Backend agent progress and review steps.</p>
+                    <h2 className="intro-card-title">执行日志</h2>
+                    <p className="intro-card-desc">后端 Agent 的运行步骤和审稿进度。</p>
                   </div>
                 </div>
                 <div className="intro-card-body">
@@ -1192,7 +1255,7 @@ export default function IntroductionWriterPage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="intro-empty">No logs loaded.</div>
+                    <div className="intro-empty">暂无日志。</div>
                   )}
                 </div>
               </section>
