@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   getIntroJob,
   getIntroLogs,
@@ -94,10 +94,6 @@ export default function IntroductionWriterPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  const mainFileInputRef = useRef<HTMLInputElement | null>(null);
-  const supportFile1InputRef = useRef<HTMLInputElement | null>(null);
-  const supportFile2InputRef = useRef<HTMLInputElement | null>(null);
-
   const status = job?.status || "";
   const stage = job?.stage || "";
 
@@ -150,25 +146,6 @@ export default function IntroductionWriterPage() {
     return () => window.clearInterval(timer);
   }, [shouldPoll, jobId]);
 
-  function clearMainInputs() {
-    setInnovationText("");
-    setMainFile(null);
-    if (mainFileInputRef.current) {
-      mainFileInputRef.current.value = "";
-    }
-  }
-
-  function clearSupportingInputs() {
-    setSupportFile1(null);
-    setSupportFile2(null);
-    if (supportFile1InputRef.current) {
-      supportFile1InputRef.current.value = "";
-    }
-    if (supportFile2InputRef.current) {
-      supportFile2InputRef.current.value = "";
-    }
-  }
-
   async function handleSubmitReference() {
     if (!mainFile) {
       setMessage("请上传主参考论文 PDF。");
@@ -194,7 +171,6 @@ export default function IntroductionWriterPage() {
       if (result?.job_id) {
         setJobId(result.job_id);
         setMessage("主参考论文已提交，系统正在分析。");
-        clearMainInputs();
         await refreshHistory(userId);
       } else {
         setMessage(result?.message || "提交成功，但后端未返回任务 ID。");
@@ -228,7 +204,6 @@ export default function IntroductionWriterPage() {
       });
 
       setMessage("补充论文已提交，系统正在学习三篇论文并生成英文 Introduction。");
-      clearSupportingInputs();
       await refreshJob(jobId);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -987,7 +962,6 @@ export default function IntroductionWriterPage() {
                         </p>
                       </div>
                       <input
-                        ref={mainFileInputRef}
                         type="file"
                         accept="application/pdf"
                         onChange={(event) => setMainFile(event.target.files?.[0] || null)}
@@ -1081,9 +1055,6 @@ export default function IntroductionWriterPage() {
                           {item?.reason && (
                             <p className="intro-candidate-reason">{item.reason}</p>
                           )}
-                          {item?.how_user_should_use_it && (
-                            <p className="intro-candidate-reason">{item.how_user_should_use_it}</p>
-                          )}
                           {item?.url && (
                             <a
                               href={item.url}
@@ -1116,7 +1087,6 @@ export default function IntroductionWriterPage() {
                           </p>
                         </div>
                         <input
-                          ref={supportFile1InputRef}
                           type="file"
                           accept="application/pdf"
                           onChange={(event) => setSupportFile1(event.target.files?.[0] || null)}
@@ -1135,7 +1105,6 @@ export default function IntroductionWriterPage() {
                           </p>
                         </div>
                         <input
-                          ref={supportFile2InputRef}
                           type="file"
                           accept="application/pdf"
                           onChange={(event) => setSupportFile2(event.target.files?.[0] || null)}
