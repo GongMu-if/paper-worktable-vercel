@@ -1098,12 +1098,31 @@ export default function IntroductionWriterPage() {
                           type="file"
                           accept="application/pdf"
                           multiple
-                          onChange={(event) => setSupportFiles(Array.from(event.target.files || []))}
+                          onChange={(event) => {
+                            const selectedFiles = Array.from(event.target.files || []);
+
+                            setSupportFiles((prevFiles) => {
+                              const mergedFiles = [...prevFiles, ...selectedFiles];
+
+                              const uniqueFiles = Array.from(
+                                new Map(
+                                  mergedFiles.map((file) => [
+                                    `${file.name}-${file.size}-${file.lastModified}`,
+                                    file,
+                                  ])
+                                ).values()
+                              );
+
+                              return uniqueFiles.slice(0, 6);
+                            });
+
+                            event.target.value = "";
+                          }}
                           className="intro-file-input"
                         />
                       </div>
                       <p className="intro-card-desc" style={{ marginTop: 8 }}>
-                        可上传 2-6 篇。建议每个创新点匹配 1-2 篇文献，但不是必须每个创新点都上传两篇。
+                        可上传 2-6 篇。可以一次按住 Ctrl / Shift 多选，也可以多次点击“选择文件”逐篇追加。建议每个创新点匹配 1-2 篇文献，但不是必须每个创新点都上传两篇。
                       </p>
                     </div>
 
