@@ -146,15 +146,120 @@ export async function getUserCachedReport(username: string, cacheKey: string): P
   return backendRpc<AnalysisResult | null>("get_user_cached_report", { username, cache_key: cacheKey });
 }
 
+
+function getAnalysisStorageBucket() {
+  return process.env.NEXT_PUBLIC_ANALYSIS_STORAGE_BUCKET || "analysis-pdfs";
+}
+
+function sanitizeAnalysisFileName(name: string) {
+  const rawName = name || "paper.pdf";
+  const withoutPdfExt = rawName.toLowerCase().endsWith(".pdf")
+    ? rawName.slice(0, -4)
+    : rawName;
+
+  const cleaned = withoutPdfExt
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+
+  return `${cleaned || "paper"}.pdf`;
+}
+
+function createAnalysisStoragePath(file: File) {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return `analysis/${new Date().toISOString().slice(0, 10)}/${random}-${sanitizeAnalysisFileName(file.name)}`;
+}
+
+async function createAnalysisSignedUpload(path: string, contentType = "application/pdf") {
+  const response = await fetch("/api/analysis/storage/sign-upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bucket: getAnalysisStorageBucket(),
+      path,
+      content_type: contentType,
+    }),
+  });
+
+  const result = await response.json().catch(() => null) as Record<string, unknown> | null;
+
+  if (!response.ok || result?.status !== "ok") {
+    throw new Error(formatRpcError(result?.message || result?.error || `创建上传签名失败：HTTP ${response.status}`));
+  }
+
+  return result.data as { path: string; token?: string; signedUrl?: string };
+}
+
+async function createAnalysisSignedDownload(path: string) {
+  const response = await fetch("/api/analysis/storage/sign-download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bucket: getAnalysisStorageBucket(),
+      path,
+      expires_in: 60 * 60 * 24,
+    }),
+  });
+
+  const result = await response.json().catch(() => null) as Record<string, unknown> | null;
+
+  if (!response.ok || result?.status !== "ok") {
+    throw new Error(formatRpcError(result?.message || result?.error || `创建下载签名失败：HTTP ${response.status}`));
+  }
+
+  return result.data as { path: string; signedUrl: string };
+}
+
+async function uploadAnalysisPdfToStorage(file: File) {
+  const path = createAnalysisStoragePath(file);
+  const contentType = file.type || "application/pdf";
+  const uploadSign = await createAnalysisSignedUpload(path, contentType);
+  const uploadPath = uploadSign.path || path;
+
+  if (!uploadSign.signedUrl) {
+    throw new Error("创建上传签名失败：后端没有返回 signedUrl。");
+  }
+
+  const uploadResponse = await fetch(uploadSign.signedUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": contentType,
+    },
+    body: file,
+  });
+
+  if (!uploadResponse.ok) {
+    const errorText = await uploadResponse.text().catch(() => "");
+    throw new Error(
+      `PDF 上传到对象存储失败：HTTP ${uploadResponse.status} ${errorText || "Supabase Storage 未返回错误详情。"}`,
+    );
+  }
+
+  const downloadSign = await createAnalysisSignedDownload(uploadPath);
+
+  return {
+    path: uploadPath,
+    signedUrl: downloadSign.signedUrl,
+  };
+}
+
 export async function submitAnalysisJob(jobId: string, sourceName: string, cacheKey: string, file: File): Promise<Record<string, unknown>> {
-  const directUploadUrl = process.env.NEXT_PUBLIC_DIRECT_ANALYSIS_UPLOAD_URL;
+  const uploaded = await uploadAnalysisPdfToStorage(file);
+
   const formData = new FormData();
   formData.append("job_id", jobId);
   formData.append("source_name", sourceName || "未命名论文");
   formData.append("cache_key", cacheKey);
-  formData.append("file", file, file.name || "paper.pdf");
+  formData.append("file_url", uploaded.signedUrl);
+  formData.append("storage_path", uploaded.path);
 
-  const response = await fetch(directUploadUrl || "/api/analysis-upload", {
+  const response = await fetch("/api/analysis-upload-url", {
     method: "POST",
     body: formData,
   });
