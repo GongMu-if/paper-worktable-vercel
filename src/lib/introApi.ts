@@ -1,3 +1,5 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
 export type IntroJob = {
   id?: string;
   user_id?: string;
@@ -26,12 +28,122 @@ export type IntroJob = {
   updated_at?: string;
 };
 
-function getDirectReferenceUploadUrl() {
-  return process.env.NEXT_PUBLIC_INTRO_SUBMIT_REFERENCE_URL || "";
+let supabaseBrowserClient: SupabaseClient | null = null;
+
+function getSupabaseBrowserClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+  if (!url || !anonKey) {
+    throw new Error("缺少 NEXT_PUBLIC_SUPABASE_URL 或 NEXT_PUBLIC_SUPABASE_ANON_KEY。");
+  }
+
+  if (!supabaseBrowserClient) {
+    supabaseBrowserClient = createClient(url, anonKey);
+  }
+
+  return supabaseBrowserClient;
 }
 
-function getDirectSupportingUploadUrl() {
-  return process.env.NEXT_PUBLIC_INTRO_SUBMIT_SUPPORTING_URL || "";
+function getStorageBucket() {
+  return process.env.NEXT_PUBLIC_INTRO_STORAGE_BUCKET || "intro-pdfs";
+}
+
+function sanitizeFileName(name: string) {
+  const cleaned = (name || "paper.pdf")
+    .replace(/[\\/:*?"<>|#%{}^~[\]`]/g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 120);
+
+  return cleaned.toLowerCase().endsWith(".pdf") ? cleaned : `${cleaned}.pdf`;
+}
+
+function createStoragePath(file: File, role: "main" | "support") {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return `${role}/${new Date().toISOString().slice(0, 10)}/${random}-${sanitizeFileName(file.name)}`;
+}
+
+async function createSignedUpload(path: string, contentType = "application/pdf") {
+  const resp = await fetch("/api/introduction/storage/sign-upload", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      bucket: getStorageBucket(),
+      path,
+      content_type: contentType,
+    }),
+  });
+
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok || data?.status !== "ok") {
+    throw new Error(data?.message || `创建上传签名失败: ${resp.status}`);
+  }
+
+  return data.data as { path: string; token: string; signedUrl?: string };
+}
+
+async function createSignedDownload(path: string) {
+  const resp = await fetch("/api/introduction/storage/sign-download", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      bucket: getStorageBucket(),
+      path,
+      expires_in: 60 * 60 * 24,
+    }),
+  });
+
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok || data?.status !== "ok") {
+    throw new Error(data?.message || `创建下载签名失败: ${resp.status}`);
+  }
+
+  return data.data as { path: string; signedUrl: string };
+}
+
+async function uploadPdfToStorage(file: File, role: "main" | "support") {
+  const supabase = getSupabaseBrowserClient();
+  const path = createStoragePath(file, role);
+
+  const uploadSign = await createSignedUpload(path, file.type || "application/pdf");
+
+  const { error: uploadError } = await supabase.storage
+    .from(getStorageBucket())
+    .uploadToSignedUrl(uploadSign.path || path, uploadSign.token, file, {
+      contentType: file.type || "application/pdf",
+    });
+
+  if (uploadError) {
+    throw new Error(`PDF 上传到对象存储失败: ${uploadError.message}`);
+  }
+
+  const downloadSign = await createSignedDownload(uploadSign.path || path);
+
+  return {
+    path: uploadSign.path || path,
+    signedUrl: downloadSign.signedUrl,
+  };
+}
+
+async function postForm(url: string, formData: FormData) {
+  const resp = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    throw new Error(data?.message || `请求失败: ${resp.status}`);
+  }
+
+  return data;
 }
 
 export async function introRpc(
@@ -98,31 +210,16 @@ export async function submitReferencePaper(params: {
   sourceName: string;
   file: File;
 }) {
+  const uploaded = await uploadPdfToStorage(params.file, "main");
+
   const formData = new FormData();
   formData.append("user_id", params.userId || "");
   formData.append("innovation_text", params.innovationText || "");
   formData.append("source_name", params.sourceName || params.file.name);
-  formData.append("file", params.file, params.file.name);
+  formData.append("file_url", uploaded.signedUrl);
+  formData.append("storage_path", uploaded.path);
 
-  // Large PDF upload must bypass Vercel API Route because Vercel Functions have a 4.5 MB payload limit.
-  // If NEXT_PUBLIC_INTRO_SUBMIT_REFERENCE_URL is configured, upload directly to Modal.
-  const directUrl = getDirectReferenceUploadUrl();
-  const uploadUrl = directUrl || "/api/introduction/reference";
-
-  const resp = await fetch(uploadUrl, {
-    method: "POST",
-    body: formData,
-  });
-
-  const data = await resp.json().catch(() => ({}));
-
-  if (!resp.ok) {
-    throw new Error(
-      data?.message || `主参考论文上传失败: ${resp.status}`
-    );
-  }
-
-  return data;
+  return postForm("/api/introduction/reference-url", formData);
 }
 
 export async function submitSupportingPapers(params: {
@@ -132,30 +229,19 @@ export async function submitSupportingPapers(params: {
   supportName1?: string;
   supportName2?: string;
 }) {
+  const [uploaded1, uploaded2] = await Promise.all([
+    uploadPdfToStorage(params.file1, "support"),
+    uploadPdfToStorage(params.file2, "support"),
+  ]);
+
   const formData = new FormData();
   formData.append("job_id", params.jobId);
   formData.append("support_name_1", params.supportName1 || params.file1.name);
   formData.append("support_name_2", params.supportName2 || params.file2.name);
-  formData.append("file1", params.file1, params.file1.name);
-  formData.append("file2", params.file2, params.file2.name);
+  formData.append("file_url_1", uploaded1.signedUrl);
+  formData.append("file_url_2", uploaded2.signedUrl);
+  formData.append("storage_path_1", uploaded1.path);
+  formData.append("storage_path_2", uploaded2.path);
 
-  // Large PDF upload must bypass Vercel API Route because Vercel Functions have a 4.5 MB payload limit.
-  // If NEXT_PUBLIC_INTRO_SUBMIT_SUPPORTING_URL is configured, upload directly to Modal.
-  const directUrl = getDirectSupportingUploadUrl();
-  const uploadUrl = directUrl || "/api/introduction/supporting";
-
-  const resp = await fetch(uploadUrl, {
-    method: "POST",
-    body: formData,
-  });
-
-  const data = await resp.json().catch(() => ({}));
-
-  if (!resp.ok) {
-    throw new Error(
-      data?.message || `补充论文上传失败: ${resp.status}`
-    );
-  }
-
-  return data;
+  return postForm("/api/introduction/supporting-urls", formData);
 }
