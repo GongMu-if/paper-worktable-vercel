@@ -26,6 +26,14 @@ export type IntroJob = {
   updated_at?: string;
 };
 
+function getDirectReferenceUploadUrl() {
+  return process.env.NEXT_PUBLIC_INTRO_SUBMIT_REFERENCE_URL || "";
+}
+
+function getDirectSupportingUploadUrl() {
+  return process.env.NEXT_PUBLIC_INTRO_SUBMIT_SUPPORTING_URL || "";
+}
+
 export async function introRpc(
   action: string,
   payload: Record<string, any> = {}
@@ -96,7 +104,12 @@ export async function submitReferencePaper(params: {
   formData.append("source_name", params.sourceName || params.file.name);
   formData.append("file", params.file, params.file.name);
 
-  const resp = await fetch("/api/introduction/reference", {
+  // Large PDF upload must bypass Vercel API Route because Vercel Functions have a 4.5 MB payload limit.
+  // If NEXT_PUBLIC_INTRO_SUBMIT_REFERENCE_URL is configured, upload directly to Modal.
+  const directUrl = getDirectReferenceUploadUrl();
+  const uploadUrl = directUrl || "/api/introduction/reference";
+
+  const resp = await fetch(uploadUrl, {
     method: "POST",
     body: formData,
   });
@@ -126,7 +139,12 @@ export async function submitSupportingPapers(params: {
   formData.append("file1", params.file1, params.file1.name);
   formData.append("file2", params.file2, params.file2.name);
 
-  const resp = await fetch("/api/introduction/supporting", {
+  // Large PDF upload must bypass Vercel API Route because Vercel Functions have a 4.5 MB payload limit.
+  // If NEXT_PUBLIC_INTRO_SUBMIT_SUPPORTING_URL is configured, upload directly to Modal.
+  const directUrl = getDirectSupportingUploadUrl();
+  const uploadUrl = directUrl || "/api/introduction/supporting";
+
+  const resp = await fetch(uploadUrl, {
     method: "POST",
     body: formData,
   });
