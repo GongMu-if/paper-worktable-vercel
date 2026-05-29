@@ -83,8 +83,7 @@ export default function IntroductionWriterPage() {
   const [innovationText, setInnovationText] = useState("");
   const [mainFile, setMainFile] = useState<File | null>(null);
 
-  const [supportFile1, setSupportFile1] = useState<File | null>(null);
-  const [supportFile2, setSupportFile2] = useState<File | null>(null);
+  const [supportFiles, setSupportFiles] = useState<File[]>([]);
 
   const [jobId, setJobId] = useState("");
   const [job, setJob] = useState<IntroJob | null>(null);
@@ -188,8 +187,8 @@ export default function IntroductionWriterPage() {
       return;
     }
 
-    if (!supportFile1 || !supportFile2) {
-      setMessage("请上传两篇同问题补充论文。");
+    if (supportFiles.length < 2 || supportFiles.length > 6) {
+      setMessage("请上传 2-6 篇同问题或创新点相关补充论文。");
       return;
     }
 
@@ -199,11 +198,10 @@ export default function IntroductionWriterPage() {
     try {
       await submitSupportingPapers({
         jobId,
-        file1: supportFile1,
-        file2: supportFile2,
+        files: supportFiles,
       });
 
-      setMessage("补充论文已提交，系统正在学习三篇论文并生成英文 Introduction。");
+      setMessage("补充论文已提交，系统正在学习上传论文并生成英文 Introduction。");
       await refreshJob(jobId);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -905,7 +903,7 @@ export default function IntroductionWriterPage() {
             <div className="intro-step-mini">
               <div className="intro-step-index">2</div>
               <div>
-                <p className="intro-step-mini-title">上传两篇补充论文</p>
+                <p className="intro-step-mini-title">上传 2-6 篇补充论文</p>
                 <p className="intro-step-mini-text">用于学习同问题领域知识和关键引用需求。</p>
               </div>
             </div>
@@ -1028,9 +1026,9 @@ export default function IntroductionWriterPage() {
               <section className="intro-card">
                 <div className="intro-card-header">
                   <div className="intro-card-title-wrap">
-                    <h2 className="intro-card-title">步骤 2 · 上传两篇同问题补充论文</h2>
+                    <h2 className="intro-card-title">步骤 2 · 上传2-6 篇同问题或创新点相关补充论文</h2>
                     <p className="intro-card-desc">
-                      可以参考系统推荐结果，也可以手动上传你认为最合适的两篇同问题论文。
+                      可以参考系统推荐结果，也可以手动上传你认为最合适的2-6 篇同问题论文。
                     </p>
                   </div>
                 </div>
@@ -1055,6 +1053,14 @@ export default function IntroductionWriterPage() {
                           {item?.reason && (
                             <p className="intro-candidate-reason">{item.reason}</p>
                           )}
+                          {item?.how_user_should_use_it && (
+                            <p className="intro-candidate-reason">{item.how_user_should_use_it}</p>
+                          )}
+                          {item?.matched_innovation_points?.length > 0 && (
+                            <p className="intro-candidate-reason">
+                              匹配创新点：{item.matched_innovation_points.join("；")}
+                            </p>
+                          )}
                           {item?.url && (
                             <a
                               href={item.url}
@@ -1069,7 +1075,7 @@ export default function IntroductionWriterPage() {
                       ))
                     ) : (
                       <div className="intro-empty">
-                        没有检索到候选论文。你仍然可以手动上传两篇补充论文。
+                        没有检索到候选论文。你仍然可以手动上传 2-6 篇补充论文。
                       </div>
                     )}
                   </div>
@@ -1078,39 +1084,27 @@ export default function IntroductionWriterPage() {
 
                   <div className="intro-form-grid">
                     <div>
-                      <label className="intro-label">补充论文 1 PDF</label>
+                      <label className="intro-label">补充论文 PDF（2-6 篇）</label>
                       <div className="intro-file-box">
                         <div className="intro-file-info">
-                          <p className="intro-file-title">上传第一篇补充论文</p>
+                          <p className="intro-file-title">批量上传补充论文</p>
                           <p className="intro-file-name">
-                            {supportFile1 ? supportFile1.name : "尚未选择文件"}
+                            {supportFiles.length > 0
+                              ? `已选择 ${supportFiles.length} 篇：${supportFiles.map((file) => file.name).join("；")}`
+                              : "尚未选择文件"}
                           </p>
                         </div>
                         <input
                           type="file"
                           accept="application/pdf"
-                          onChange={(event) => setSupportFile1(event.target.files?.[0] || null)}
+                          multiple
+                          onChange={(event) => setSupportFiles(Array.from(event.target.files || []))}
                           className="intro-file-input"
                         />
                       </div>
-                    </div>
-
-                    <div>
-                      <label className="intro-label">补充论文 2 PDF</label>
-                      <div className="intro-file-box">
-                        <div className="intro-file-info">
-                          <p className="intro-file-title">上传第二篇补充论文</p>
-                          <p className="intro-file-name">
-                            {supportFile2 ? supportFile2.name : "尚未选择文件"}
-                          </p>
-                        </div>
-                        <input
-                          type="file"
-                          accept="application/pdf"
-                          onChange={(event) => setSupportFile2(event.target.files?.[0] || null)}
-                          className="intro-file-input"
-                        />
-                      </div>
+                      <p className="intro-card-desc" style={{ marginTop: 8 }}>
+                        可上传 2-6 篇。建议每个创新点匹配 1-2 篇文献，但不是必须每个创新点都上传两篇。
+                      </p>
                     </div>
 
                     <div className="intro-button-row">
