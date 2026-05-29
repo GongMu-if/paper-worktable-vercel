@@ -108,25 +108,36 @@ async function createSignedDownload(path: string) {
 }
 
 async function uploadPdfToStorage(file: File, role: "main" | "support") {
-  const supabase = getSupabaseBrowserClient();
+  getSupabaseBrowserClient();
+
   const path = createStoragePath(file, role);
+  const contentType = file.type || "application/pdf";
+  const uploadSign = await createSignedUpload(path, contentType);
+  const uploadPath = uploadSign.path || path;
 
-  const uploadSign = await createSignedUpload(path, file.type || "application/pdf");
-
-  const { error: uploadError } = await supabase.storage
-    .from(getStorageBucket())
-    .uploadToSignedUrl(uploadSign.path || path, uploadSign.token, file, {
-      contentType: file.type || "application/pdf",
-    });
-
-  if (uploadError) {
-    throw new Error(`PDF 上传到对象存储失败：${uploadError.message}`);
+  if (!uploadSign.signedUrl) {
+    throw new Error("创建上传签名失败：后端没有返回 signedUrl。");
   }
 
-  const downloadSign = await createSignedDownload(uploadSign.path || path);
+  const uploadResp = await fetch(uploadSign.signedUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": contentType,
+    },
+    body: file,
+  });
+
+  if (!uploadResp.ok) {
+    const errorText = await uploadResp.text().catch(() => "");
+    throw new Error(
+      `PDF 上传到对象存储失败：HTTP ${uploadResp.status} ${errorText || "Supabase Storage 未返回错误详情。"}`
+    );
+  }
+
+  const downloadSign = await createSignedDownload(uploadPath);
 
   return {
-    path: uploadSign.path || path,
+    path: uploadPath,
     signedUrl: downloadSign.signedUrl,
   };
 }
