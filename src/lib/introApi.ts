@@ -227,9 +227,12 @@ export async function submitReferencePaper(params: {
   innovationText: string;
   sourceName: string;
   file: File;
-  manuscriptText?: string;
+  manuscriptFile?: File | null;
 }) {
   const uploaded = await uploadPdfToStorage(params.file, "main");
+  const manuscriptUploaded = params.manuscriptFile
+    ? await uploadPdfToStorage(params.manuscriptFile, "manuscript")
+    : null;
 
   const formData = new FormData();
   formData.append("user_id", params.userId || "");
@@ -237,7 +240,9 @@ export async function submitReferencePaper(params: {
   formData.append("source_name", params.sourceName || params.file.name);
   formData.append("file_url", uploaded.signedUrl);
   formData.append("storage_path", uploaded.path);
-  formData.append("manuscript_text", params.manuscriptText || "");
+  formData.append("manuscript_pdf_name", params.manuscriptFile?.name || "");
+  formData.append("manuscript_file_url", manuscriptUploaded?.signedUrl || "");
+  formData.append("manuscript_storage_path", manuscriptUploaded?.path || "");
 
   return postForm("/api/introduction/reference-url", formData);
 }
@@ -249,7 +254,7 @@ export async function submitSupportingPapers(params: {
   file2?: File;
   supportName1?: string;
   supportName2?: string;
-  manuscriptText?: string;
+  manuscriptFile?: File | null;
 }) {
   const files = params.files && params.files.length > 0
     ? params.files
@@ -269,6 +274,9 @@ export async function submitSupportingPapers(params: {
       };
     })
   );
+  const manuscriptUploaded = params.manuscriptFile
+    ? await uploadPdfToStorage(params.manuscriptFile, "manuscript")
+    : null;
 
   const formData = new FormData();
   formData.append("job_id", params.jobId);
@@ -281,7 +289,9 @@ export async function submitSupportingPapers(params: {
   formData.append("file_url_2", uploaded[1]?.file_url || "");
   formData.append("storage_path_1", uploaded[0]?.storage_path || "");
   formData.append("storage_path_2", uploaded[1]?.storage_path || "");
-  formData.append("manuscript_text", params.manuscriptText || "");
+  formData.append("manuscript_pdf_name", params.manuscriptFile?.name || "");
+  formData.append("manuscript_file_url", manuscriptUploaded?.signedUrl || "");
+  formData.append("manuscript_storage_path", manuscriptUploaded?.path || "");
 
   return postForm("/api/introduction/supporting-urls", formData);
 }
@@ -291,7 +301,7 @@ export async function submitDirectReferencePapers(params: {
   userId: string;
   innovationText: string;
   files: File[];
-  manuscriptText?: string;
+  manuscriptFile?: File | null;
 }) {
   const files = params.files || [];
 
@@ -309,12 +319,17 @@ export async function submitDirectReferencePapers(params: {
       };
     })
   );
+  const manuscriptUploaded = params.manuscriptFile
+    ? await uploadPdfToStorage(params.manuscriptFile, "manuscript")
+    : null;
 
   const formData = new FormData();
   formData.append("user_id", params.userId || "");
   formData.append("innovation_text", params.innovationText || "");
   formData.append("reference_files", JSON.stringify(uploaded));
-  formData.append("manuscript_text", params.manuscriptText || "");
+  formData.append("manuscript_pdf_name", params.manuscriptFile?.name || "");
+  formData.append("manuscript_file_url", manuscriptUploaded?.signedUrl || "");
+  formData.append("manuscript_storage_path", manuscriptUploaded?.path || "");
 
   return postForm("/api/introduction/direct-references-url", formData);
 }
