@@ -65,7 +65,7 @@ function sanitizeFileName(name: string) {
   return `${cleaned || "paper"}.pdf`;
 }
 
-function createStoragePath(file: File, role: "main" | "support") {
+function createStoragePath(file: File, role: "main" | "support" | "direct") {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -114,7 +114,7 @@ async function createSignedDownload(path: string) {
   return data.data as { path: string; signedUrl: string };
 }
 
-async function uploadPdfToStorage(file: File, role: "main" | "support") {
+async function uploadPdfToStorage(file: File, role: "main" | "support" | "direct") {
   getSupabaseBrowserClient();
 
   const path = createStoragePath(file, role);
@@ -227,6 +227,7 @@ export async function submitReferencePaper(params: {
   innovationText: string;
   sourceName: string;
   file: File;
+  manuscriptText?: string;
 }) {
   const uploaded = await uploadPdfToStorage(params.file, "main");
 
@@ -236,6 +237,7 @@ export async function submitReferencePaper(params: {
   formData.append("source_name", params.sourceName || params.file.name);
   formData.append("file_url", uploaded.signedUrl);
   formData.append("storage_path", uploaded.path);
+  formData.append("manuscript_text", params.manuscriptText || "");
 
   return postForm("/api/introduction/reference-url", formData);
 }
@@ -247,6 +249,7 @@ export async function submitSupportingPapers(params: {
   file2?: File;
   supportName1?: string;
   supportName2?: string;
+  manuscriptText?: string;
 }) {
   const files = params.files && params.files.length > 0
     ? params.files
@@ -278,6 +281,40 @@ export async function submitSupportingPapers(params: {
   formData.append("file_url_2", uploaded[1]?.file_url || "");
   formData.append("storage_path_1", uploaded[0]?.storage_path || "");
   formData.append("storage_path_2", uploaded[1]?.storage_path || "");
+  formData.append("manuscript_text", params.manuscriptText || "");
 
   return postForm("/api/introduction/supporting-urls", formData);
+}
+
+
+export async function submitDirectReferencePapers(params: {
+  userId: string;
+  innovationText: string;
+  files: File[];
+  manuscriptText?: string;
+}) {
+  const files = params.files || [];
+
+  if (files.length < 2 || files.length > 7) {
+    throw new Error(`直接参考论文组模式请上传 2-7 篇参考论文。当前数量：${files.length}`);
+  }
+
+  const uploaded = await Promise.all(
+    files.map(async (file) => {
+      const item = await uploadPdfToStorage(file, "direct");
+      return {
+        name: file.name,
+        file_url: item.signedUrl,
+        storage_path: item.path,
+      };
+    })
+  );
+
+  const formData = new FormData();
+  formData.append("user_id", params.userId || "");
+  formData.append("innovation_text", params.innovationText || "");
+  formData.append("reference_files", JSON.stringify(uploaded));
+  formData.append("manuscript_text", params.manuscriptText || "");
+
+  return postForm("/api/introduction/direct-references-url", formData);
 }
