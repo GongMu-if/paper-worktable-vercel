@@ -65,7 +65,7 @@ function sanitizeFileName(name: string) {
   return `${cleaned || "paper"}.pdf`;
 }
 
-function createStoragePath(file: File, role: "main" | "support" | "direct") {
+function createStoragePath(file: File, role: "main" | "support" | "direct" | "manuscript") {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -114,7 +114,7 @@ async function createSignedDownload(path: string) {
   return data.data as { path: string; signedUrl: string };
 }
 
-async function uploadPdfToStorage(file: File, role: "main" | "support" | "direct") {
+async function uploadPdfToStorage(file: File, role: "main" | "support" | "direct" | "manuscript") {
   getSupabaseBrowserClient();
 
   const path = createStoragePath(file, role);
