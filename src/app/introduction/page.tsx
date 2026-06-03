@@ -58,10 +58,7 @@ function stageText(stage?: string) {
     reference_submitted: "主论文已提交",
     reference_analysis: "主参考论文分析",
     same_problem_search: "同问题论文检索",
-    direct_reference_analysis: "直接参考论文分析",
-    manuscript_context_analysis: "正文内容增强分析",
     awaiting_supporting_papers: "等待上传补充论文",
-    direct_reference_generation: "直接参考论文生成中",
     supporting_paper_analysis: "补充论文分析",
     field_knowledge: "领域知识综合",
     citation_planning: "引用规划",
@@ -69,7 +66,11 @@ function stageText(stage?: string) {
     review_revision: "审稿与修改",
     finished: "已完成",
     reference_stage_failed: "主参考论文阶段失败",
-    generation_stage_failed: "生成阶段失败"
+    generation_stage_failed: "生成阶段失败",
+    direct_reference_submitted: "直接参考论文已提交",
+    direct_reference_analysis: "直接参考论文分析",
+    direct_reference_generation: "直接参考论文生成",
+    direct_reference_stage_failed: "直接参考论文阶段失败",
   };
   return map[value] || stage || "等待中";
 }
