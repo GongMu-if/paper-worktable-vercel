@@ -58,6 +58,10 @@ function stageText(stage?: string) {
     reference_submitted: "主论文已提交",
     reference_analysis: "主参考论文分析",
     same_problem_search: "同问题论文检索",
+    direct_reference_submitted: "直接参考论文已提交",
+    direct_reference_analysis: "直接参考论文分析",
+    direct_reference_generation: "直接参考论文生成",
+    manuscript_context_analysis: "正文 PDF 增强分析",
     awaiting_supporting_papers: "等待上传补充论文",
     supporting_paper_analysis: "补充论文分析",
     field_knowledge: "领域知识综合",
@@ -67,9 +71,6 @@ function stageText(stage?: string) {
     finished: "已完成",
     reference_stage_failed: "主参考论文阶段失败",
     generation_stage_failed: "生成阶段失败",
-    direct_reference_submitted: "直接参考论文已提交",
-    direct_reference_analysis: "直接参考论文分析",
-    direct_reference_generation: "直接参考论文生成",
     direct_reference_stage_failed: "直接参考论文阶段失败",
   };
   return map[value] || stage || "等待中";
@@ -90,7 +91,7 @@ export default function IntroductionWriterPage() {
   const [workflowMode, setWorkflowMode] = useState<"search_assisted" | "direct_reference_set">("search_assisted");
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [directFiles, setDirectFiles] = useState<File[]>([]);
-  const [manuscriptText, setManuscriptText] = useState("");
+  const [manuscriptFile, setManuscriptFile] = useState<File | null>(null);
 
   const [supportFiles, setSupportFiles] = useState<File[]>([]);
 
@@ -187,7 +188,7 @@ export default function IntroductionWriterPage() {
         innovationText,
         sourceName: mainFile.name,
         file: mainFile,
-        manuscriptText,
+        manuscriptFile,
       });
 
       if (result?.job_id) {
@@ -222,7 +223,7 @@ export default function IntroductionWriterPage() {
       await submitSupportingPapers({
         jobId,
         files: supportFiles,
-        manuscriptText,
+        manuscriptFile,
       });
 
       setMessage("补充论文已提交，系统正在学习上传论文并生成英文 Introduction。");
@@ -254,7 +255,7 @@ export default function IntroductionWriterPage() {
         userId,
         innovationText,
         files: directFiles,
-        manuscriptText,
+        manuscriptFile,
       });
 
       if (result?.job_id) {
@@ -1038,16 +1039,24 @@ export default function IntroductionWriterPage() {
                   </div>
 
                   <div>
-                    <label className="intro-label">可选：已写正文 / Results / Discussion / Conclusion</label>
-                    <textarea
-                      value={manuscriptText}
-                      onChange={(event) => setManuscriptText(event.target.value)}
-                      className="intro-textarea"
-                      style={{ minHeight: 150 }}
-                      placeholder={
-                        "可选粘贴你已经写好的正文、方法、结果、讨论或结论片段。系统只会把它作为本文研究上下文，用于更真实地描述创新点和研究动机，不会替代文献引用。"
-                      }
-                    />
+                    <label className="intro-label">可选：已写正文 PDF（Method / Results / Discussion / Conclusion）</label>
+                    <div className="intro-file-box">
+                      <div className="intro-file-info">
+                        <p className="intro-file-title">上传已写正文 PDF</p>
+                        <p className="intro-file-name">
+                          {manuscriptFile ? manuscriptFile.name : "尚未选择文件"}
+                        </p>
+                      </div>
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        onChange={(event) => setManuscriptFile(event.target.files?.[0] || null)}
+                        className="intro-file-input"
+                      />
+                    </div>
+                    <p className="intro-card-desc" style={{ marginTop: 8 }}>
+                      可选上传你已经写好的正文 PDF，例如 Method、Results、Discussion 或 Conclusion。系统会解析该 PDF，提取本文真实研究上下文和结果性线索，用于更准确地描述创新点；它不会替代文献引用。
+                    </p>
                   </div>
 
                   {workflowMode === "search_assisted" ? (
