@@ -69,8 +69,7 @@ function stageText(stage?: string) {
     review_revision: "审稿与修改",
     finished: "已完成",
     reference_stage_failed: "主参考论文阶段失败",
-    generation_stage_failed: "生成阶段失败",
-    direct_reference_generation: "直接参考论文生成",
+    generation_stage_failed: "生成阶段失败"
   };
   return map[value] || stage || "等待中";
 }
