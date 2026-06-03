@@ -29,7 +29,9 @@ export async function POST(request: Request) {
     const userId = String(incomingForm.get("user_id") || "");
     const innovationText = String(incomingForm.get("innovation_text") || "");
     const referenceFiles = String(incomingForm.get("reference_files") || "[]");
-    const manuscriptText = String(incomingForm.get("manuscript_text") || "");
+    const manuscriptPdfName = String(incomingForm.get("manuscript_pdf_name") || "");
+    const manuscriptFileUrl = String(incomingForm.get("manuscript_file_url") || "");
+    const manuscriptStoragePath = String(incomingForm.get("manuscript_storage_path") || "");
 
     if (!innovationText.trim()) {
       return jsonResponse(
@@ -45,7 +47,9 @@ export async function POST(request: Request) {
     formData.append("user_id", userId);
     formData.append("innovation_text", innovationText);
     formData.append("reference_files", referenceFiles);
-    formData.append("manuscript_text", manuscriptText);
+    formData.append("manuscript_pdf_name", manuscriptPdfName);
+    formData.append("manuscript_file_url", manuscriptFileUrl);
+    formData.append("manuscript_storage_path", manuscriptStoragePath);
 
     const upstreamResp = await fetch(upstreamUrl, {
       method: "POST",
