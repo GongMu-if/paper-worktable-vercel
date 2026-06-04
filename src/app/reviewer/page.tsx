@@ -45,6 +45,13 @@ function formatFileSize(size: number) {
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+function splitReportItem(item: string) {
+  const lines = String(item || "").split(/\r?\n/);
+  const title = (lines.shift() || "").trim();
+  const body = lines.join("\n").trimStart();
+  return { title, body };
+}
+
 export default function ReviewerPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<UiStatus>("idle");
@@ -864,9 +871,9 @@ export default function ReviewerPage() {
         .reviewer-report-title {
           margin: 0 0 18px;
           color: #0f172a;
-          font-size: 17px;
+          font-size: 18px;
           font-weight: 950;
-          line-height: 1.7;
+          line-height: 1.55;
         }
 
         .reviewer-report-body {
@@ -1137,18 +1144,19 @@ export default function ReviewerPage() {
                 {(jobState.job.final_result || "")
                   .split(/\n\n---\n\n/g)
                   .filter(Boolean)
-                  .map((item, index) => {
-                    const lines = item.split("\n");
-                    const title = lines.shift() || "";
-                    const body = lines.join("\n").trim();
-
-                    return (
-                      <article key={index} className="reviewer-report-item">
-                        <h3 className="reviewer-report-title">{title}</h3>
-                        <div className="reviewer-report-body">{body}</div>
-                      </article>
-                    );
-                  })}
+                  .map((item, index) => (
+                    <article key={index} className="reviewer-report-item">
+                      {(() => {
+                        const report = splitReportItem(item);
+                        return (
+                          <>
+                            {report.title && <h3 className="reviewer-report-title">{report.title}</h3>}
+                            {report.body && <div className="reviewer-report-body">{report.body}</div>}
+                          </>
+                        );
+                      })()}
+                    </article>
+                  ))}
               </div>
             </div>
           </section>
