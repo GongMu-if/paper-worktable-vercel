@@ -854,12 +854,23 @@ export default function ReviewerPage() {
         .reviewer-report-item {
           padding: 10px 0 28px;
           border-bottom: 1px solid var(--reviewer-border);
-          white-space: pre-wrap;
         }
 
         .reviewer-report-item:last-child {
           padding-bottom: 0;
           border-bottom: 0;
+        }
+
+        .reviewer-report-title {
+          margin: 0 0 18px;
+          color: #0f172a;
+          font-size: 17px;
+          font-weight: 950;
+          line-height: 1.7;
+        }
+
+        .reviewer-report-body {
+          white-space: pre-wrap;
         }
 
         @media (max-width: 920px) {
@@ -1126,11 +1137,18 @@ export default function ReviewerPage() {
                 {(jobState.job.final_result || "")
                   .split(/\n\n---\n\n/g)
                   .filter(Boolean)
-                  .map((item, index) => (
-                    <article key={index} className="reviewer-report-item">
-                      {item}
-                    </article>
-                  ))}
+                  .map((item, index) => {
+                    const lines = item.split("\n");
+                    const title = lines.shift() || "";
+                    const body = lines.join("\n").trim();
+
+                    return (
+                      <article key={index} className="reviewer-report-item">
+                        <h3 className="reviewer-report-title">{title}</h3>
+                        <div className="reviewer-report-body">{body}</div>
+                      </article>
+                    );
+                  })}
               </div>
             </div>
           </section>
