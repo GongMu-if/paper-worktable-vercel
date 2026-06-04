@@ -59,6 +59,7 @@ export default function ReviewerPage() {
   const [jobId, setJobId] = useState<string>("");
   const [jobState, setJobState] = useState<ReviewJobStatus | null>(null);
   const [error, setError] = useState<string>("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const pollingRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -99,6 +100,23 @@ export default function ReviewerPage() {
     pollingRef.current = window.setInterval(() => {
       poll(id).catch((e) => setError(e.message || String(e)));
     }, 3000);
+  }
+
+  async function handleRefresh() {
+    if (!jobId) {
+      setMessage("暂无可刷新的审稿任务。");
+      return;
+    }
+
+    try {
+      setIsRefreshing(true);
+      setError("");
+      await poll(jobId);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setIsRefreshing(false);
+    }
   }
 
   useEffect(() => clearPolling, []);
@@ -507,6 +525,13 @@ export default function ReviewerPage() {
 
         .reviewer-button-secondary:hover:not(:disabled) {
           background: #f8fafc;
+          box-shadow: none;
+        }
+
+        .reviewer-refresh-button {
+          padding: 8px 12px;
+          border-radius: 12px;
+          font-size: 12px;
           box-shadow: none;
         }
 
@@ -1060,7 +1085,17 @@ export default function ReviewerPage() {
             <section className="reviewer-card">
               <div className="reviewer-card-header">
                 <div>
-                  <h2 className="reviewer-card-title">实时进度</h2>
+                  <div className="reviewer-progress-head">
+                    <h2 className="reviewer-card-title">实时进度</h2>
+                    <button
+                      type="button"
+                      onClick={handleRefresh}
+                      disabled={!jobId || isRefreshing}
+                      className="reviewer-button reviewer-button-secondary reviewer-refresh-button"
+                    >
+                      {isRefreshing ? "刷新中..." : "刷新"}
+                    </button>
+                  </div>
                   <p className="reviewer-card-desc">{message}</p>
                 </div>
                 <div className="reviewer-progress-circle">{progress}%</div>
