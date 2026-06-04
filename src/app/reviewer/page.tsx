@@ -839,19 +839,27 @@ export default function ReviewerPage() {
         }
 
         .reviewer-output {
-          max-height: 680px;
+          max-height: 760px;
           overflow: auto;
           margin: 0;
-          padding: 22px;
-          border: 1px solid #111827;
-          border-radius: 18px;
-          background: #0f172a;
-          color: #e5edf8;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-          font-size: 13px;
-          line-height: 1.75;
+          padding: 0 4px;
+          color: #172033;
+          font-family:
+            Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+            "Segoe UI", "Microsoft YaHei", sans-serif;
+          font-size: 15px;
+          line-height: 1.9;
+        }
+
+        .reviewer-report-item {
+          padding: 10px 0 28px;
+          border-bottom: 1px solid var(--reviewer-border);
           white-space: pre-wrap;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .reviewer-report-item:last-child {
+          padding-bottom: 0;
+          border-bottom: 0;
         }
 
         @media (max-width: 920px) {
@@ -1114,7 +1122,16 @@ export default function ReviewerPage() {
               </button>
             </div>
             <div className="reviewer-card-body">
-              <pre className="reviewer-output">{jobState.job.final_result}</pre>
+              <div className="reviewer-output">
+                {(jobState.job.final_result || "")
+                  .split(/\n\n---\n\n/g)
+                  .filter(Boolean)
+                  .map((item, index) => (
+                    <article key={index} className="reviewer-report-item">
+                      {item}
+                    </article>
+                  ))}
+              </div>
             </div>
           </section>
         )}
