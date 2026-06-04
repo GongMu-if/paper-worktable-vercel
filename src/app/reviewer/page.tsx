@@ -10,7 +10,13 @@ import {
   uploadReviewerPdf,
 } from "@/lib/reviewerApi";
 
-type UiStatus = "idle" | "uploading" | "submitted" | "running" | "completed" | "failed";
+type UiStatus =
+  | "idle"
+  | "uploading"
+  | "submitted"
+  | "running"
+  | "completed"
+  | "failed";
 
 function statusText(status?: string | null) {
   const map: Record<string, string> = {
@@ -55,15 +61,17 @@ function splitReportItem(item: string) {
 export default function ReviewerPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<UiStatus>("idle");
-  const [message, setMessage] = useState("请选择需要审稿的 PDF 文件。支持批量上传。");
+  const [message, setMessage] = useState(
+    "请选择需要审稿的 PDF 文件。支持批量上传。",
+  );
   const [jobId, setJobId] = useState<string>("");
   const [jobState, setJobState] = useState<ReviewJobStatus | null>(null);
   const [error, setError] = useState<string>("");
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const pollingRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const isBusy = status === "uploading" || status === "running" || status === "submitted";
+  const isBusy =
+    status === "uploading" || status === "running" || status === "submitted";
 
   const progress = useMemo(() => {
     const job = jobState?.job;
@@ -86,7 +94,11 @@ export default function ReviewerPage() {
     const state = await fetchReviewerJob(id);
     setJobState(state);
     setMessage(state.job.message || statusText(state.job.status));
-    if (["completed", "completed_with_errors", "failed"].includes(state.job.status)) {
+    if (
+      ["completed", "completed_with_errors", "failed"].includes(
+        state.job.status,
+      )
+    ) {
       clearPolling();
       setStatus(state.job.status === "failed" ? "failed" : "completed");
     } else {
@@ -102,32 +114,23 @@ export default function ReviewerPage() {
     }, 3000);
   }
 
-  async function handleRefresh() {
-    if (!jobId) {
-      setMessage("暂无可刷新的审稿任务。");
-      return;
-    }
-
-    try {
-      setIsRefreshing(true);
-      setError("");
-      await poll(jobId);
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setIsRefreshing(false);
-    }
-  }
-
   useEffect(() => clearPolling, []);
 
   function addFiles(selected: File[]) {
-    const pdfs = selected.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
+    const pdfs = selected.filter(
+      (file) =>
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf"),
+    );
     setFiles((prev) => {
       const next = [...prev];
       for (const file of pdfs) {
         const key = `${file.name}-${file.size}-${file.lastModified}`;
-        if (!next.some((item) => `${item.name}-${item.size}-${item.lastModified}` === key)) {
+        if (
+          !next.some(
+            (item) => `${item.name}-${item.size}-${item.lastModified}` === key,
+          )
+        ) {
           next.push(file);
         }
       }
@@ -142,6 +145,11 @@ export default function ReviewerPage() {
 
   function removeFile(index: number) {
     setFiles((prev) => prev.filter((_, idx) => idx !== index));
+  }
+
+  function handlePageRefresh() {
+    clearPolling();
+    window.location.reload();
   }
 
   async function handleSubmit() {
@@ -528,13 +536,6 @@ export default function ReviewerPage() {
           box-shadow: none;
         }
 
-        .reviewer-refresh-button {
-          padding: 8px 12px;
-          border-radius: 12px;
-          font-size: 12px;
-          box-shadow: none;
-        }
-
         .reviewer-submit-button {
           width: 100%;
           margin-top: 18px;
@@ -663,6 +664,19 @@ export default function ReviewerPage() {
           align-items: center;
           justify-content: space-between;
           gap: 16px;
+        }
+
+        .reviewer-progress-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex: 0 0 auto;
+        }
+
+        .reviewer-page-refresh-button {
+          padding: 10px 14px;
+          border-radius: 12px;
+          font-size: 13px;
         }
 
         .reviewer-progress-circle {
@@ -947,6 +961,11 @@ export default function ReviewerPage() {
             flex-direction: column;
           }
 
+          .reviewer-progress-actions {
+            justify-content: space-between;
+            width: 100%;
+          }
+
           .reviewer-status-badge,
           .reviewer-remove-button {
             width: fit-content;
@@ -963,7 +982,8 @@ export default function ReviewerPage() {
             </div>
             <h1 className="reviewer-title">批量论文审稿 Agent</h1>
             <p className="reviewer-subtitle">
-              上传多篇 PDF 后，系统并行解析文本，判断是否符合期刊收录方向，并输出三段式审稿意见：整体评价、中文评语、英文学术翻译。
+              上传多篇 PDF
+              后，系统并行解析文本，判断是否符合期刊收录方向，并输出三段式审稿意见：整体评价、中文评语、英文学术翻译。
             </p>
           </div>
 
@@ -990,7 +1010,8 @@ export default function ReviewerPage() {
               <div>
                 <h2 className="reviewer-card-title">步骤 1 · 上传待审论文</h2>
                 <p className="reviewer-card-desc">
-                  支持批量上传 PDF。前端只显示实时进度，最终汇总每篇论文的审稿意见。
+                  支持批量上传
+                  PDF。前端只显示实时进度，最终汇总每篇论文的审稿意见。
                 </p>
               </div>
               <div className="reviewer-selected-count">
@@ -1005,7 +1026,9 @@ export default function ReviewerPage() {
                 type="file"
                 accept="application/pdf,.pdf"
                 multiple
-                onChange={(event) => addFiles(Array.from(event.target.files || []))}
+                onChange={(event) =>
+                  addFiles(Array.from(event.target.files || []))
+                }
                 className="reviewer-hidden-input"
               />
 
@@ -1014,7 +1037,8 @@ export default function ReviewerPage() {
                 tabIndex={0}
                 onClick={() => fileInputRef.current?.click()}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click();
+                  if (event.key === "Enter" || event.key === " ")
+                    fileInputRef.current?.click();
                 }}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
@@ -1025,10 +1049,17 @@ export default function ReviewerPage() {
               >
                 <div>
                   <div className="reviewer-drop-icon">↑</div>
-                  <div className="reviewer-drop-title">点击选择 PDF，或拖拽文件到这里</div>
-                  <div className="reviewer-drop-text">仅接收 PDF 文件，可一次上传多篇论文。</div>
+                  <div className="reviewer-drop-title">
+                    点击选择 PDF，或拖拽文件到这里
+                  </div>
+                  <div className="reviewer-drop-text">
+                    仅接收 PDF 文件，可一次上传多篇论文。
+                  </div>
                   <div className="reviewer-button-row">
-                    <button type="button" className="reviewer-button reviewer-button-secondary">
+                    <button
+                      type="button"
+                      className="reviewer-button reviewer-button-secondary"
+                    >
                       选择 PDF 文件
                     </button>
                   </div>
@@ -1050,10 +1081,15 @@ export default function ReviewerPage() {
                   </div>
                   <div className="reviewer-file-items">
                     {files.map((file, index) => (
-                      <div key={`${file.name}-${file.size}-${file.lastModified}`} className="reviewer-file-item">
+                      <div
+                        key={`${file.name}-${file.size}-${file.lastModified}`}
+                        className="reviewer-file-item"
+                      >
                         <div className="reviewer-file-main">
                           <div className="reviewer-file-name">{file.name}</div>
-                          <div className="reviewer-file-size">{formatFileSize(file.size)}</div>
+                          <div className="reviewer-file-size">
+                            {formatFileSize(file.size)}
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -1085,25 +1121,27 @@ export default function ReviewerPage() {
             <section className="reviewer-card">
               <div className="reviewer-card-header">
                 <div>
-                  <div className="reviewer-progress-head">
-                    <h2 className="reviewer-card-title">实时进度</h2>
-                    <button
-                      type="button"
-                      onClick={handleRefresh}
-                      disabled={!jobId || isRefreshing}
-                      className="reviewer-button reviewer-button-secondary reviewer-refresh-button"
-                    >
-                      {isRefreshing ? "刷新中..." : "刷新"}
-                    </button>
-                  </div>
+                  <h2 className="reviewer-card-title">实时进度</h2>
                   <p className="reviewer-card-desc">{message}</p>
                 </div>
-                <div className="reviewer-progress-circle">{progress}%</div>
+                <div className="reviewer-progress-actions">
+                  <button
+                    type="button"
+                    onClick={handlePageRefresh}
+                    className="reviewer-button reviewer-button-secondary reviewer-page-refresh-button"
+                  >
+                    刷新页面
+                  </button>
+                  <div className="reviewer-progress-circle">{progress}%</div>
+                </div>
               </div>
 
               <div className="reviewer-card-body">
                 <div className="reviewer-progress-track">
-                  <div className="reviewer-progress-bar" style={{ width: `${progress}%` }} />
+                  <div
+                    className="reviewer-progress-bar"
+                    style={{ width: `${progress}%` }}
+                  />
                 </div>
 
                 <div className="reviewer-stat-grid">
@@ -1121,7 +1159,9 @@ export default function ReviewerPage() {
                   </div>
                 </div>
 
-                {jobId && <div className="reviewer-job-id">Job ID: {jobId}</div>}
+                {jobId && (
+                  <div className="reviewer-job-id">Job ID: {jobId}</div>
+                )}
               </div>
             </section>
 
@@ -1129,7 +1169,9 @@ export default function ReviewerPage() {
               <div className="reviewer-card-header">
                 <div>
                   <h2 className="reviewer-card-title">处理队列</h2>
-                  <p className="reviewer-card-desc">每篇论文独立并行处理，完成后自动汇总结果。</p>
+                  <p className="reviewer-card-desc">
+                    每篇论文独立并行处理，完成后自动汇总结果。
+                  </p>
                 </div>
               </div>
 
@@ -1140,14 +1182,24 @@ export default function ReviewerPage() {
                       <div key={paper.id} className="reviewer-queue-item">
                         <div className="reviewer-queue-top">
                           <div className="reviewer-queue-main">
-                            <div className="reviewer-queue-name">{paper.file_name}</div>
-                            <div className="reviewer-queue-message">{paper.message || "等待后端返回状态"}</div>
+                            <div className="reviewer-queue-name">
+                              {paper.file_name}
+                            </div>
+                            <div className="reviewer-queue-message">
+                              {paper.message || "等待后端返回状态"}
+                            </div>
                           </div>
-                          <span className={`reviewer-status-badge ${statusBadgeClass(paper.status)}`}>
+                          <span
+                            className={`reviewer-status-badge ${statusBadgeClass(paper.status)}`}
+                          >
                             {statusText(paper.status)}
                           </span>
                         </div>
-                        {paper.error && <div className="reviewer-queue-error">{paper.error}</div>}
+                        {paper.error && (
+                          <div className="reviewer-queue-error">
+                            {paper.error}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1164,11 +1216,17 @@ export default function ReviewerPage() {
             <div className="reviewer-final-header">
               <div>
                 <h2 className="reviewer-card-title">最终审稿意见</h2>
-                <p className="reviewer-card-desc">按照论文顺序汇总展示，可直接复制用于进一步整理。</p>
+                <p className="reviewer-card-desc">
+                  按照论文顺序汇总展示，可直接复制用于进一步整理。
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => navigator.clipboard?.writeText(jobState.job.final_result || "")}
+                onClick={() =>
+                  navigator.clipboard?.writeText(
+                    jobState.job.final_result || "",
+                  )
+                }
                 className="reviewer-button reviewer-button-secondary"
               >
                 复制结果
@@ -1185,8 +1243,16 @@ export default function ReviewerPage() {
                         const report = splitReportItem(item);
                         return (
                           <>
-                            {report.title && <h3 className="reviewer-report-title">{report.title}</h3>}
-                            {report.body && <div className="reviewer-report-body">{report.body}</div>}
+                            {report.title && (
+                              <h3 className="reviewer-report-title">
+                                {report.title}
+                              </h3>
+                            )}
+                            {report.body && (
+                              <div className="reviewer-report-body">
+                                {report.body}
+                              </div>
+                            )}
                           </>
                         );
                       })()}
