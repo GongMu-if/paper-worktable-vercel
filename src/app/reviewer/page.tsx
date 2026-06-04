@@ -24,12 +24,13 @@ function statusText(status?: string | null) {
 }
 
 function statusBadgeClass(status?: string | null) {
-  const value = String(status || "");
-  if (value === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (value === "completed_with_errors") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (value === "failed") return "border-rose-200 bg-rose-50 text-rose-700";
-  if (value === "processing") return "border-blue-200 bg-blue-50 text-blue-700";
-  return "border-slate-200 bg-slate-50 text-slate-600";
+  const value = String(status || "unknown");
+  if (value === "completed") return "reviewer-status-completed";
+  if (value === "completed_with_errors") return "reviewer-status-warning";
+  if (value === "failed") return "reviewer-status-failed";
+  if (value === "processing") return "reviewer-status-processing";
+  if (value === "queued") return "reviewer-status-queued";
+  return "reviewer-status-unknown";
 }
 
 function formatFileSize(size: number) {
@@ -149,236 +150,972 @@ export default function ReviewerPage() {
   }
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,#dbeafe_0,#eef6ff_28%,#f8fbff_54%,#eef6ff_100%)] px-4 py-8 text-slate-950 sm:px-6 lg:px-10">
-      <div className="pointer-events-none fixed inset-0 -z-10 opacity-70">
-        <div className="absolute left-[-12rem] top-[-10rem] h-96 w-96 rounded-full bg-blue-200 blur-3xl" />
-        <div className="absolute right-[-10rem] top-24 h-96 w-96 rounded-full bg-cyan-100 blur-3xl" />
-        <div className="absolute bottom-[-12rem] left-1/3 h-96 w-96 rounded-full bg-indigo-100 blur-3xl" />
-      </div>
+    <main className="reviewer-page">
+      <style>{`
+        :root {
+          --reviewer-bg: #f5f7fb;
+          --reviewer-card: rgba(255, 255, 255, 0.92);
+          --reviewer-card-solid: #ffffff;
+          --reviewer-border: #dfe5ef;
+          --reviewer-border-strong: #c8d2e2;
+          --reviewer-text: #152033;
+          --reviewer-muted: #64748b;
+          --reviewer-muted-2: #94a3b8;
+          --reviewer-primary: #2563eb;
+          --reviewer-primary-dark: #1d4ed8;
+          --reviewer-primary-soft: #eff6ff;
+          --reviewer-green: #16a34a;
+          --reviewer-green-soft: #ecfdf5;
+          --reviewer-red: #dc2626;
+          --reviewer-red-soft: #fef2f2;
+          --reviewer-yellow: #d97706;
+          --reviewer-yellow-soft: #fffbeb;
+          --reviewer-shadow: 0 20px 60px rgba(15, 23, 42, 0.10);
+          --reviewer-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.08);
+          --reviewer-radius: 22px;
+        }
 
-      <div className="mx-auto max-w-7xl space-y-7">
-        <section className="relative overflow-hidden rounded-[2rem] border border-white/70 bg-white/75 p-8 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur-xl lg:p-10">
-          <div className="absolute right-0 top-0 h-full w-1/3 rounded-l-[5rem] bg-gradient-to-br from-blue-100/80 to-sky-50/30" />
-          <div className="relative grid gap-8 lg:grid-cols-[1fr_320px] lg:items-center">
-            <div className="space-y-5">
-              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700 shadow-sm">
-                <span className="h-2 w-2 rounded-full bg-blue-600" />
-                Journal of Control and Decision 审稿辅助
-              </div>
-              <div>
-                <h1 className="max-w-4xl text-4xl font-black tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
-                  批量论文审稿 Agent
-                </h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg">
-                  上传多篇 PDF 后，系统并行解析文本，判断是否符合期刊收录方向，并输出三段式审稿意见：整体评价、中文评语、英文学术翻译。
-                </p>
-              </div>
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          margin: 0;
+          background:
+            radial-gradient(circle at top left, rgba(37, 99, 235, 0.13), transparent 30%),
+            radial-gradient(circle at 78% 12%, rgba(14, 165, 233, 0.12), transparent 28%),
+            var(--reviewer-bg);
+          color: var(--reviewer-text);
+          font-family:
+            Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+            "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        .reviewer-page {
+          min-height: 100vh;
+          padding: 36px 24px 56px;
+          background:
+            radial-gradient(circle at top left, rgba(37, 99, 235, 0.13), transparent 30%),
+            radial-gradient(circle at 78% 12%, rgba(14, 165, 233, 0.12), transparent 28%),
+            var(--reviewer-bg);
+          color: var(--reviewer-text);
+          font-family:
+            Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+            "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        .reviewer-container {
+          width: min(1180px, 100%);
+          margin: 0 auto;
+        }
+
+        .reviewer-hero {
+          position: relative;
+          overflow: hidden;
+          display: grid;
+          grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+          gap: 24px;
+          padding: 34px;
+          border: 1px solid rgba(203, 213, 225, 0.75);
+          border-radius: 30px;
+          background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.86)),
+            linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(14, 165, 233, 0.07));
+          box-shadow: var(--reviewer-shadow);
+        }
+
+        .reviewer-hero::after {
+          content: "";
+          position: absolute;
+          right: -80px;
+          top: -80px;
+          width: 240px;
+          height: 240px;
+          border-radius: 999px;
+          background: rgba(37, 99, 235, 0.11);
+        }
+
+        .reviewer-kicker {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          width: fit-content;
+          padding: 8px 12px;
+          border: 1px solid rgba(37, 99, 235, 0.18);
+          border-radius: 999px;
+          background: rgba(239, 246, 255, 0.8);
+          color: var(--reviewer-primary-dark);
+          font-size: 13px;
+          font-weight: 800;
+          letter-spacing: 0.02em;
+        }
+
+        .reviewer-kicker-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          background: var(--reviewer-primary);
+          box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.12);
+        }
+
+        .reviewer-title {
+          margin: 18px 0 12px;
+          color: #0f172a;
+          font-size: clamp(34px, 4vw, 56px);
+          line-height: 1.02;
+          letter-spacing: -0.055em;
+        }
+
+        .reviewer-subtitle {
+          max-width: 780px;
+          margin: 0;
+          color: var(--reviewer-muted);
+          font-size: 16px;
+          line-height: 1.7;
+        }
+
+        .reviewer-hero-side {
+          position: relative;
+          z-index: 1;
+          display: grid;
+          gap: 12px;
+          align-content: center;
+        }
+
+        .reviewer-step-mini {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+          padding: 14px;
+          border: 1px solid rgba(203, 213, 225, 0.75);
+          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.74);
+          box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+        }
+
+        .reviewer-step-index {
+          display: grid;
+          place-items: center;
+          flex: 0 0 auto;
+          width: 30px;
+          height: 30px;
+          border-radius: 10px;
+          background: #0f172a;
+          color: white;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .reviewer-step-mini-title {
+          margin: 0 0 3px;
+          color: #0f172a;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .reviewer-step-mini-text {
+          margin: 0;
+          color: var(--reviewer-muted);
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
+        .reviewer-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+          gap: 22px;
+          margin-top: 24px;
+          align-items: start;
+        }
+
+        .reviewer-stack {
+          display: grid;
+          gap: 22px;
+        }
+
+        .reviewer-sidebar {
+          position: sticky;
+          top: 20px;
+          display: grid;
+          gap: 22px;
+        }
+
+        .reviewer-card {
+          border: 1px solid var(--reviewer-border);
+          border-radius: var(--reviewer-radius);
+          background: var(--reviewer-card);
+          box-shadow: var(--reviewer-shadow-soft);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+
+        .reviewer-card-header {
+          display: flex;
+          gap: 14px;
+          align-items: flex-start;
+          justify-content: space-between;
+          padding: 22px 24px 0;
+        }
+
+        .reviewer-card-title {
+          margin: 0;
+          color: #0f172a;
+          font-size: 21px;
+          line-height: 1.25;
+          letter-spacing: -0.025em;
+        }
+
+        .reviewer-card-desc {
+          margin: 7px 0 0;
+          color: var(--reviewer-muted);
+          font-size: 13px;
+          line-height: 1.55;
+        }
+
+        .reviewer-card-body {
+          padding: 22px 24px 24px;
+        }
+
+        .reviewer-selected-count {
+          display: grid;
+          place-items: center;
+          min-width: 86px;
+          padding: 12px 14px;
+          border-radius: 18px;
+          background: #0f172a;
+          color: white;
+          text-align: center;
+        }
+
+        .reviewer-selected-label {
+          color: #cbd5e1;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .reviewer-selected-value {
+          margin-top: 2px;
+          font-size: 26px;
+          font-weight: 950;
+          line-height: 1;
+        }
+
+        .reviewer-hidden-input {
+          display: none;
+        }
+
+        .reviewer-dropzone {
+          cursor: pointer;
+          display: grid;
+          place-items: center;
+          min-height: 238px;
+          padding: 28px;
+          border: 1.5px dashed #b7c4d8;
+          border-radius: 22px;
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9)),
+            radial-gradient(circle at center, rgba(37, 99, 235, 0.08), transparent 52%);
+          text-align: center;
+          outline: none;
+          transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
+
+        .reviewer-dropzone:hover,
+        .reviewer-dropzone:focus-visible {
+          transform: translateY(-1px);
+          border-color: rgba(37, 99, 235, 0.65);
+          background: linear-gradient(180deg, #ffffff, #eff6ff);
+          box-shadow: 0 14px 34px rgba(37, 99, 235, 0.10);
+        }
+
+        .reviewer-drop-icon {
+          display: grid;
+          place-items: center;
+          width: 58px;
+          height: 58px;
+          border-radius: 18px;
+          background: var(--reviewer-primary);
+          color: white;
+          font-size: 28px;
+          font-weight: 900;
+          box-shadow: 0 15px 28px rgba(37, 99, 235, 0.25);
+        }
+
+        .reviewer-drop-title {
+          margin-top: 16px;
+          color: #0f172a;
+          font-size: 18px;
+          font-weight: 950;
+        }
+
+        .reviewer-drop-text {
+          margin-top: 8px;
+          color: var(--reviewer-muted);
+          font-size: 13px;
+          line-height: 1.55;
+        }
+
+        .reviewer-button-row {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          flex-wrap: wrap;
+          margin-top: 18px;
+          justify-content: center;
+        }
+
+        .reviewer-button {
+          appearance: none;
+          border: 0;
+          border-radius: 14px;
+          padding: 12px 18px;
+          background: var(--reviewer-primary);
+          color: white;
+          cursor: pointer;
+          font: inherit;
+          font-size: 14px;
+          font-weight: 900;
+          box-shadow: 0 12px 22px rgba(37, 99, 235, 0.22);
+          transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, opacity 160ms ease;
+        }
+
+        .reviewer-button:hover:not(:disabled) {
+          transform: translateY(-1px);
+          background: var(--reviewer-primary-dark);
+          box-shadow: 0 16px 26px rgba(37, 99, 235, 0.26);
+        }
+
+        .reviewer-button:disabled {
+          cursor: not-allowed;
+          opacity: 0.55;
+          box-shadow: none;
+        }
+
+        .reviewer-button-secondary {
+          border: 1px solid var(--reviewer-border-strong);
+          background: white;
+          color: #334155;
+          box-shadow: none;
+        }
+
+        .reviewer-button-secondary:hover:not(:disabled) {
+          background: #f8fafc;
+          box-shadow: none;
+        }
+
+        .reviewer-submit-button {
+          width: 100%;
+          margin-top: 18px;
+          padding: 15px 18px;
+          border-radius: 18px;
+          font-size: 15px;
+        }
+
+        .reviewer-file-list {
+          margin-top: 18px;
+          padding: 16px;
+          border: 1px solid var(--reviewer-border);
+          border-radius: 20px;
+          background: #ffffff;
+        }
+
+        .reviewer-file-list-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .reviewer-file-list-title {
+          color: #0f172a;
+          font-size: 14px;
+          font-weight: 900;
+        }
+
+        .reviewer-link-button {
+          appearance: none;
+          border: 0;
+          background: transparent;
+          color: var(--reviewer-muted-2);
+          cursor: pointer;
+          font: inherit;
+          font-size: 13px;
+          font-weight: 900;
+          transition: color 160ms ease;
+        }
+
+        .reviewer-link-button:hover:not(:disabled) {
+          color: var(--reviewer-red);
+        }
+
+        .reviewer-link-button:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+
+        .reviewer-file-items {
+          display: grid;
+          gap: 10px;
+        }
+
+        .reviewer-file-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 12px 14px;
+          border: 1px solid #edf2f7;
+          border-radius: 16px;
+          background: #f8fafc;
+        }
+
+        .reviewer-file-main {
+          min-width: 0;
+        }
+
+        .reviewer-file-name {
+          color: #0f172a;
+          font-size: 13px;
+          font-weight: 900;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .reviewer-file-size {
+          margin-top: 4px;
+          color: var(--reviewer-muted-2);
+          font-size: 12px;
+        }
+
+        .reviewer-remove-button {
+          appearance: none;
+          flex: 0 0 auto;
+          border: 0;
+          border-radius: 10px;
+          padding: 7px 10px;
+          background: transparent;
+          color: var(--reviewer-muted-2);
+          cursor: pointer;
+          font: inherit;
+          font-size: 13px;
+          font-weight: 900;
+          transition: background 160ms ease, color 160ms ease;
+        }
+
+        .reviewer-remove-button:hover:not(:disabled) {
+          background: var(--reviewer-red-soft);
+          color: var(--reviewer-red);
+        }
+
+        .reviewer-remove-button:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+
+        .reviewer-error {
+          margin-top: 16px;
+          padding: 14px 16px;
+          border: 1px solid rgba(220, 38, 38, 0.16);
+          border-radius: 18px;
+          background: var(--reviewer-red-soft);
+          color: #991b1b;
+          font-size: 13px;
+          font-weight: 800;
+          line-height: 1.55;
+        }
+
+        .reviewer-progress-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+        }
+
+        .reviewer-progress-circle {
+          display: grid;
+          place-items: center;
+          flex: 0 0 auto;
+          width: 66px;
+          height: 66px;
+          border-radius: 20px;
+          background: #0f172a;
+          color: white;
+          font-size: 18px;
+          font-weight: 950;
+        }
+
+        .reviewer-progress-track {
+          overflow: hidden;
+          height: 12px;
+          margin-top: 20px;
+          border-radius: 999px;
+          background: #eaf0f7;
+        }
+
+        .reviewer-progress-bar {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #2563eb, #06b6d4);
+          transition: width 500ms ease;
+        }
+
+        .reviewer-stat-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          margin-top: 16px;
+        }
+
+        .reviewer-stat {
+          padding: 14px;
+          border-radius: 18px;
+          text-align: center;
+          background: #f8fafc;
+        }
+
+        .reviewer-stat-green {
+          background: var(--reviewer-green-soft);
+        }
+
+        .reviewer-stat-red {
+          background: var(--reviewer-red-soft);
+        }
+
+        .reviewer-stat-value {
+          color: #0f172a;
+          font-size: 22px;
+          font-weight: 950;
+          line-height: 1;
+        }
+
+        .reviewer-stat-green .reviewer-stat-value {
+          color: #166534;
+        }
+
+        .reviewer-stat-red .reviewer-stat-value {
+          color: #991b1b;
+        }
+
+        .reviewer-stat-label {
+          margin-top: 7px;
+          color: var(--reviewer-muted);
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .reviewer-job-id {
+          margin-top: 14px;
+          padding: 12px 14px;
+          border: 1px solid var(--reviewer-border);
+          border-radius: 14px;
+          background: #f8fafc;
+          color: var(--reviewer-muted);
+          font-size: 12px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .reviewer-queue-list {
+          display: grid;
+          gap: 12px;
+          margin-top: 18px;
+        }
+
+        .reviewer-queue-item {
+          padding: 15px;
+          border: 1px solid var(--reviewer-border);
+          border-radius: 18px;
+          background: #ffffff;
+          box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+        }
+
+        .reviewer-queue-top {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .reviewer-queue-main {
+          min-width: 0;
+        }
+
+        .reviewer-queue-name {
+          color: #0f172a;
+          font-size: 13px;
+          font-weight: 950;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .reviewer-queue-message {
+          margin-top: 5px;
+          color: var(--reviewer-muted);
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .reviewer-status-badge {
+          display: inline-flex;
+          align-items: center;
+          flex: 0 0 auto;
+          width: fit-content;
+          padding: 6px 10px;
+          border: 1px solid transparent;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 950;
+          white-space: nowrap;
+        }
+
+        .reviewer-status-completed {
+          border-color: #bbf7d0;
+          background: var(--reviewer-green-soft);
+          color: #166534;
+        }
+
+        .reviewer-status-warning,
+        .reviewer-status-queued {
+          border-color: #fde68a;
+          background: var(--reviewer-yellow-soft);
+          color: #92400e;
+        }
+
+        .reviewer-status-failed {
+          border-color: #fecaca;
+          background: var(--reviewer-red-soft);
+          color: #991b1b;
+        }
+
+        .reviewer-status-processing {
+          border-color: #bfdbfe;
+          background: var(--reviewer-primary-soft);
+          color: #1d4ed8;
+        }
+
+        .reviewer-status-unknown {
+          border-color: #e2e8f0;
+          background: #f8fafc;
+          color: #475569;
+        }
+
+        .reviewer-queue-error {
+          margin-top: 12px;
+          padding: 12px;
+          border-radius: 14px;
+          background: var(--reviewer-red-soft);
+          color: #991b1b;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .reviewer-empty {
+          margin-top: 18px;
+          padding: 26px 18px;
+          border: 1px dashed var(--reviewer-border-strong);
+          border-radius: 18px;
+          background: #f8fafc;
+          color: var(--reviewer-muted);
+          text-align: center;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        .reviewer-final {
+          margin-top: 22px;
+        }
+
+        .reviewer-final-header {
+          display: flex;
+          gap: 14px;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          padding: 22px 24px 0;
+        }
+
+        .reviewer-output {
+          max-height: 680px;
+          overflow: auto;
+          margin: 0;
+          padding: 22px;
+          border: 1px solid #111827;
+          border-radius: 18px;
+          background: #0f172a;
+          color: #e5edf8;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+          font-size: 13px;
+          line-height: 1.75;
+          white-space: pre-wrap;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        @media (max-width: 920px) {
+          .reviewer-page {
+            padding: 20px 14px 40px;
+          }
+
+          .reviewer-hero,
+          .reviewer-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .reviewer-hero {
+            padding: 24px;
+          }
+
+          .reviewer-sidebar {
+            position: static;
+          }
+
+          .reviewer-selected-count {
+            display: none;
+          }
+        }
+
+        @media (max-width: 560px) {
+          .reviewer-card-header,
+          .reviewer-card-body,
+          .reviewer-final-header {
+            padding-left: 18px;
+            padding-right: 18px;
+          }
+
+          .reviewer-stat-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .reviewer-progress-head,
+          .reviewer-queue-top,
+          .reviewer-file-item {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .reviewer-status-badge,
+          .reviewer-remove-button {
+            width: fit-content;
+          }
+        }
+      `}</style>
+
+      <div className="reviewer-container">
+        <section className="reviewer-hero">
+          <div>
+            <div className="reviewer-kicker">
+              <span className="reviewer-kicker-dot" />
+              Journal of Control and Decision 审稿辅助
             </div>
+            <h1 className="reviewer-title">批量论文审稿 Agent</h1>
+            <p className="reviewer-subtitle">
+              上传多篇 PDF 后，系统并行解析文本，判断是否符合期刊收录方向，并输出三段式审稿意见：整体评价、中文评语、英文学术翻译。
+            </p>
+          </div>
 
-            <div className="space-y-3">
-              {[
-                ["1", "批量上传", "多篇 PDF 上传至 Supabase Storage"],
-                ["2", "并行审稿", "Modal 后端并行解析文本与生成意见"],
-                ["3", "三段输出", "整体评价、中文评语、英文翻译"],
-              ].map(([num, title, desc]) => (
-                <div key={num} className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur">
-                  <div className="flex gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">
-                      {num}
-                    </div>
-                    <div>
-                      <div className="font-bold text-slate-950">{title}</div>
-                      <div className="mt-1 text-sm leading-5 text-slate-500">{desc}</div>
-                    </div>
-                  </div>
+          <div className="reviewer-hero-side">
+            {[
+              ["1", "批量上传", "多篇 PDF 上传至 Supabase Storage"],
+              ["2", "并行审稿", "Modal 后端并行解析文本与生成意见"],
+              ["3", "三段输出", "整体评价、中文评语、英文翻译"],
+            ].map(([num, title, desc]) => (
+              <div key={num} className="reviewer-step-mini">
+                <div className="reviewer-step-index">{num}</div>
+                <div>
+                  <p className="reviewer-step-mini-title">{title}</p>
+                  <p className="reviewer-step-mini-text">{desc}</p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </section>
 
-        <div className="grid gap-7 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <section className="rounded-[1.7rem] border border-white/70 bg-white/85 p-6 shadow-[0_22px_70px_rgba(15,23,42,0.10)] backdrop-blur-xl lg:p-7">
-            <div className="mb-6 flex items-start justify-between gap-4">
+        <div className="reviewer-grid">
+          <section className="reviewer-card">
+            <div className="reviewer-card-header">
               <div>
-                <h2 className="text-2xl font-black tracking-tight text-slate-950">步骤 1 · 上传待审论文</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
+                <h2 className="reviewer-card-title">步骤 1 · 上传待审论文</h2>
+                <p className="reviewer-card-desc">
                   支持批量上传 PDF。前端只显示实时进度，最终汇总每篇论文的审稿意见。
                 </p>
               </div>
-              <div className="hidden rounded-2xl bg-slate-950 px-4 py-3 text-right text-white sm:block">
-                <div className="text-xs text-slate-300">已选择</div>
-                <div className="text-2xl font-black">{files.length}</div>
+              <div className="reviewer-selected-count">
+                <div className="reviewer-selected-label">已选择</div>
+                <div className="reviewer-selected-value">{files.length}</div>
               </div>
             </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,.pdf"
-              multiple
-              onChange={(event) => addFiles(Array.from(event.target.files || []))}
-              className="hidden"
-            />
+            <div className="reviewer-card-body">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                multiple
+                onChange={(event) => addFiles(Array.from(event.target.files || []))}
+                className="reviewer-hidden-input"
+              />
 
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => fileInputRef.current?.click()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click();
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                addFiles(Array.from(event.dataTransfer.files || []));
-              }}
-              className="group cursor-pointer rounded-[1.5rem] border border-dashed border-blue-300 bg-gradient-to-br from-blue-50/80 to-white p-8 text-center transition hover:border-blue-500 hover:bg-blue-50"
-            >
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-2xl text-white shadow-lg shadow-blue-200 transition group-hover:scale-105">
-                ↑
-              </div>
-              <div className="mt-4 text-lg font-black text-slate-950">点击选择 PDF，或拖拽文件到这里</div>
-              <div className="mt-2 text-sm text-slate-500">仅接收 PDF 文件，可一次上传多篇论文。</div>
-              <button
-                type="button"
-                className="mt-5 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-slate-200 transition hover:-translate-y-0.5 hover:bg-slate-800"
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click();
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  addFiles(Array.from(event.dataTransfer.files || []));
+                }}
+                className="reviewer-dropzone"
               >
-                选择 PDF 文件
-              </button>
-            </div>
-
-            {files.length > 0 && (
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="font-bold text-slate-950">待审稿文件</div>
-                  <button
-                    type="button"
-                    onClick={() => setFiles([])}
-                    disabled={isBusy}
-                    className="text-sm font-semibold text-slate-400 transition hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    清空
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {files.map((file, index) => (
-                    <div key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-bold text-slate-800">{file.name}</div>
-                        <div className="mt-1 text-xs text-slate-400">{formatFileSize(file.size)}</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeFile(index)}
-                        disabled={isBusy}
-                        className="shrink-0 rounded-lg px-3 py-1 text-sm font-semibold text-slate-400 transition hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        移除
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">
-                {error}
-              </div>
-            )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={isBusy || !files.length}
-              className="mt-6 w-full rounded-2xl bg-blue-600 px-6 py-4 text-base font-black text-white shadow-[0_18px_40px_rgba(37,99,235,0.25)] transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
-            >
-              {isBusy ? "任务处理中..." : "开始批量审稿"}
-            </button>
-          </section>
-
-          <aside className="space-y-7">
-            <section className="rounded-[1.7rem] border border-white/70 bg-white/85 p-6 shadow-[0_22px_70px_rgba(15,23,42,0.10)] backdrop-blur-xl lg:p-7">
-              <div className="mb-5 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-black tracking-tight text-slate-950">实时进度</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-500">{message}</p>
-                </div>
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-lg font-black text-white">
-                  {progress}%
-                </div>
-              </div>
-
-              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 transition-all duration-500" style={{ width: `${progress}%` }} />
-              </div>
-
-              <div className="mt-5 grid grid-cols-3 gap-3 text-center">
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-xl font-black text-slate-950">{paperCount}</div>
-                  <div className="mt-1 text-xs text-slate-400">总论文</div>
-                </div>
-                <div className="rounded-2xl bg-emerald-50 p-3">
-                  <div className="text-xl font-black text-emerald-700">{completedCount}</div>
-                  <div className="mt-1 text-xs text-emerald-600/70">已完成</div>
-                </div>
-                <div className="rounded-2xl bg-rose-50 p-3">
-                  <div className="text-xl font-black text-rose-700">{failedCount}</div>
-                  <div className="mt-1 text-xs text-rose-600/70">失败</div>
+                  <div className="reviewer-drop-icon">↑</div>
+                  <div className="reviewer-drop-title">点击选择 PDF，或拖拽文件到这里</div>
+                  <div className="reviewer-drop-text">仅接收 PDF 文件，可一次上传多篇论文。</div>
+                  <div className="reviewer-button-row">
+                    <button type="button" className="reviewer-button reviewer-button-secondary">
+                      选择 PDF 文件
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {jobId && <div className="mt-4 truncate rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-400">Job ID: {jobId}</div>}
-            </section>
-
-            <section className="rounded-[1.7rem] border border-white/70 bg-white/85 p-6 shadow-[0_22px_70px_rgba(15,23,42,0.10)] backdrop-blur-xl lg:p-7">
-              <h2 className="text-2xl font-black tracking-tight text-slate-950">处理队列</h2>
-              <p className="mt-2 text-sm text-slate-500">每篇论文独立并行处理，完成后自动汇总结果。</p>
-
-              {jobState?.papers?.length ? (
-                <div className="mt-5 space-y-3">
-                  {jobState.papers.map((paper) => (
-                    <div key={paper.id} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-bold text-slate-900">{paper.file_name}</div>
-                          <div className="mt-1 text-xs leading-5 text-slate-400">{paper.message || "等待后端返回状态"}</div>
+              {files.length > 0 && (
+                <div className="reviewer-file-list">
+                  <div className="reviewer-file-list-header">
+                    <div className="reviewer-file-list-title">待审稿文件</div>
+                    <button
+                      type="button"
+                      onClick={() => setFiles([])}
+                      disabled={isBusy}
+                      className="reviewer-link-button"
+                    >
+                      清空
+                    </button>
+                  </div>
+                  <div className="reviewer-file-items">
+                    {files.map((file, index) => (
+                      <div key={`${file.name}-${file.size}-${file.lastModified}`} className="reviewer-file-item">
+                        <div className="reviewer-file-main">
+                          <div className="reviewer-file-name">{file.name}</div>
+                          <div className="reviewer-file-size">{formatFileSize(file.size)}</div>
                         </div>
-                        <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-bold ${statusBadgeClass(paper.status)}`}>
-                          {statusText(paper.status)}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeFile(index)}
+                          disabled={isBusy}
+                          className="reviewer-remove-button"
+                        >
+                          移除
+                        </button>
                       </div>
-                      {paper.error && <div className="mt-3 rounded-xl bg-rose-50 p-3 text-xs text-rose-700">{paper.error}</div>}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
-                  暂无审稿任务。
+                    ))}
+                  </div>
                 </div>
               )}
+
+              {error && <div className="reviewer-error">{error}</div>}
+
+              <button
+                onClick={handleSubmit}
+                disabled={isBusy || !files.length}
+                className="reviewer-button reviewer-submit-button"
+              >
+                {isBusy ? "任务处理中..." : "开始批量审稿"}
+              </button>
+            </div>
+          </section>
+
+          <aside className="reviewer-sidebar">
+            <section className="reviewer-card">
+              <div className="reviewer-card-header">
+                <div>
+                  <h2 className="reviewer-card-title">实时进度</h2>
+                  <p className="reviewer-card-desc">{message}</p>
+                </div>
+                <div className="reviewer-progress-circle">{progress}%</div>
+              </div>
+
+              <div className="reviewer-card-body">
+                <div className="reviewer-progress-track">
+                  <div className="reviewer-progress-bar" style={{ width: `${progress}%` }} />
+                </div>
+
+                <div className="reviewer-stat-grid">
+                  <div className="reviewer-stat">
+                    <div className="reviewer-stat-value">{paperCount}</div>
+                    <div className="reviewer-stat-label">总论文</div>
+                  </div>
+                  <div className="reviewer-stat reviewer-stat-green">
+                    <div className="reviewer-stat-value">{completedCount}</div>
+                    <div className="reviewer-stat-label">已完成</div>
+                  </div>
+                  <div className="reviewer-stat reviewer-stat-red">
+                    <div className="reviewer-stat-value">{failedCount}</div>
+                    <div className="reviewer-stat-label">失败</div>
+                  </div>
+                </div>
+
+                {jobId && <div className="reviewer-job-id">Job ID: {jobId}</div>}
+              </div>
+            </section>
+
+            <section className="reviewer-card">
+              <div className="reviewer-card-header">
+                <div>
+                  <h2 className="reviewer-card-title">处理队列</h2>
+                  <p className="reviewer-card-desc">每篇论文独立并行处理，完成后自动汇总结果。</p>
+                </div>
+              </div>
+
+              <div className="reviewer-card-body">
+                {jobState?.papers?.length ? (
+                  <div className="reviewer-queue-list">
+                    {jobState.papers.map((paper) => (
+                      <div key={paper.id} className="reviewer-queue-item">
+                        <div className="reviewer-queue-top">
+                          <div className="reviewer-queue-main">
+                            <div className="reviewer-queue-name">{paper.file_name}</div>
+                            <div className="reviewer-queue-message">{paper.message || "等待后端返回状态"}</div>
+                          </div>
+                          <span className={`reviewer-status-badge ${statusBadgeClass(paper.status)}`}>
+                            {statusText(paper.status)}
+                          </span>
+                        </div>
+                        {paper.error && <div className="reviewer-queue-error">{paper.error}</div>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="reviewer-empty">暂无审稿任务。</div>
+                )}
+              </div>
             </section>
           </aside>
         </div>
 
         {jobState?.job?.final_result && (
-          <section className="rounded-[1.7rem] border border-white/70 bg-white/90 p-6 shadow-[0_22px_70px_rgba(15,23,42,0.10)] backdrop-blur-xl lg:p-7">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <section className="reviewer-card reviewer-final">
+            <div className="reviewer-final-header">
               <div>
-                <h2 className="text-2xl font-black tracking-tight text-slate-950">最终审稿意见</h2>
-                <p className="mt-2 text-sm text-slate-500">按照论文顺序汇总展示，可直接复制用于进一步整理。</p>
+                <h2 className="reviewer-card-title">最终审稿意见</h2>
+                <p className="reviewer-card-desc">按照论文顺序汇总展示，可直接复制用于进一步整理。</p>
               </div>
               <button
                 type="button"
                 onClick={() => navigator.clipboard?.writeText(jobState.job.final_result || "")}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                className="reviewer-button reviewer-button-secondary"
               >
                 复制结果
               </button>
             </div>
-            <pre className="max-h-[680px] overflow-auto whitespace-pre-wrap rounded-2xl border border-slate-100 bg-slate-950 p-6 text-sm leading-7 text-slate-100 shadow-inner">
-              {jobState.job.final_result}
-            </pre>
+            <div className="reviewer-card-body">
+              <pre className="reviewer-output">{jobState.job.final_result}</pre>
+            </div>
           </section>
         )}
       </div>
