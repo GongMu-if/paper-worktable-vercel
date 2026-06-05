@@ -370,10 +370,12 @@ export default function ReviewerPage() {
           position: sticky;
           top: 20px;
           display: grid;
+          min-width: 0;
           gap: 22px;
         }
 
         .reviewer-card {
+          min-width: 0;
           border: 1px solid var(--reviewer-border);
           border-radius: var(--reviewer-radius);
           background: var(--reviewer-card);
@@ -545,6 +547,7 @@ export default function ReviewerPage() {
         }
 
         .reviewer-file-list {
+          min-width: 0;
           margin-top: 18px;
           padding: 16px;
           border: 1px solid var(--reviewer-border);
@@ -589,6 +592,7 @@ export default function ReviewerPage() {
 
         .reviewer-file-items {
           display: grid;
+          min-width: 0;
           gap: 10px;
         }
 
@@ -596,6 +600,9 @@ export default function ReviewerPage() {
           display: flex;
           align-items: center;
           justify-content: space-between;
+          width: 100%;
+          min-width: 0;
+          overflow: hidden;
           gap: 14px;
           padding: 12px 14px;
           border: 1px solid #edf2f7;
@@ -604,6 +611,8 @@ export default function ReviewerPage() {
         }
 
         .reviewer-file-main {
+          flex: 1 1 0;
+          width: 0;
           min-width: 0;
         }
 
@@ -611,9 +620,10 @@ export default function ReviewerPage() {
           color: #0f172a;
           font-size: 13px;
           font-weight: 900;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          line-height: 1.55;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .reviewer-file-size {
@@ -766,11 +776,15 @@ export default function ReviewerPage() {
 
         .reviewer-queue-list {
           display: grid;
+          min-width: 0;
           gap: 12px;
           margin-top: 18px;
         }
 
         .reviewer-queue-item {
+          width: 100%;
+          min-width: 0;
+          overflow: hidden;
           padding: 15px;
           border: 1px solid var(--reviewer-border);
           border-radius: 18px;
@@ -782,10 +796,13 @@ export default function ReviewerPage() {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
+          min-width: 0;
           gap: 12px;
         }
 
         .reviewer-queue-main {
+          flex: 1 1 0;
+          width: 0;
           min-width: 0;
         }
 
@@ -793,9 +810,10 @@ export default function ReviewerPage() {
           color: #0f172a;
           font-size: 13px;
           font-weight: 950;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          line-height: 1.55;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .reviewer-queue-message {
@@ -803,6 +821,9 @@ export default function ReviewerPage() {
           color: var(--reviewer-muted);
           font-size: 12px;
           line-height: 1.5;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .reviewer-status-badge {
