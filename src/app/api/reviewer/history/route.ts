@@ -1,4 +1,4 @@
-// src/app/api/reviewer/status/route.ts
+// src/app/api/reviewer/history/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -7,11 +7,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const jobId = req.nextUrl.searchParams.get("jobId") || "";
-    const userId = req.nextUrl.searchParams.get("userId") || req.nextUrl.searchParams.get("user_id") || "";
-    if (!jobId) {
-      return NextResponse.json({ ok: false, error: "缺少 jobId" }, { status: 400 });
-    }
+    const userId = req.nextUrl.searchParams.get("userId") || req.nextUrl.searchParams.get("user_id") || "anonymous";
+    const limitRaw = Number(req.nextUrl.searchParams.get("limit") || 20);
+    const limit = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 20, 50));
 
     const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -23,31 +21,46 @@ export async function GET(req: NextRequest) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    let jobQuery = admin
+    const { data: jobs, error: jobsError } = await admin
       .from("review_jobs")
-      .select("*")
-      .eq("id", jobId);
+      .select("id, user_id, status, message, paper_count, completed_count, failed_count, final_result, created_at, updated_at, completed_at")
+      .eq("user_id", userId || "anonymous")
+      .order("created_at", { ascending: false })
+      .limit(limit);
 
-    if (userId) {
-      jobQuery = jobQuery.eq("user_id", userId);
+    if (jobsError) {
+      return NextResponse.json({ ok: false, error: jobsError.message }, { status: 500 });
     }
 
-    const { data: job, error: jobError } = await jobQuery.single();
-    if (jobError || !job) {
-      return NextResponse.json({ ok: false, error: jobError?.message || "任务不存在" }, { status: 404 });
+    const jobIds = (jobs || []).map((job: any) => job.id).filter(Boolean);
+    let papers: any[] = [];
+    if (jobIds.length) {
+      const { data: paperRows, error: papersError } = await admin
+        .from("review_papers")
+        .select("id, job_id, paper_index, file_name, status, message, formatted_review, error, updated_at, completed_at")
+        .in("job_id", jobIds)
+        .order("paper_index", { ascending: true });
+
+      if (papersError) {
+        return NextResponse.json({ ok: false, error: papersError.message }, { status: 500 });
+      }
+      papers = paperRows || [];
     }
 
-    const { data: papers, error: papersError } = await admin
-      .from("review_papers")
-      .select("id, job_id, paper_index, file_name, status, message, formatted_review, error, updated_at")
-      .eq("job_id", jobId)
-      .order("paper_index", { ascending: true });
-    if (papersError) {
-      return NextResponse.json({ ok: false, error: papersError.message }, { status: 500 });
+    const papersByJob = new Map<string, any[]>();
+    for (const paper of papers) {
+      const list = papersByJob.get(paper.job_id) || [];
+      list.push(paper);
+      papersByJob.set(paper.job_id, list);
     }
 
-    return NextResponse.json({ ok: true, job, papers: papers || [] });
+    const result = (jobs || []).map((job: any) => ({
+      ...job,
+      papers: papersByJob.get(job.id) || [],
+    }));
+
+    return NextResponse.json({ ok: true, userId: userId || "anonymous", jobs: result });
   } catch (error: any) {
-    return NextResponse.json({ ok: false, error: error?.message || "获取状态失败" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error?.message || "获取历史审稿记录失败" }, { status: 500 });
   }
 }
