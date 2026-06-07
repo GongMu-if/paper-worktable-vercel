@@ -49,6 +49,15 @@ function assertPdf(file: File) {
   }
 }
 
+function normalizeReviewerUserId(userId: string): string {
+  const user = String(userId || "").trim();
+  const lowered = user.toLowerCase();
+  if (!user || lowered === "anonymous" || lowered === "legacy_anonymous") {
+    throw new Error("请先输入有效账号名登录，不能使用 anonymous");
+  }
+  return user;
+}
+
 export function getReviewerSupabaseClient() {
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error("缺少 NEXT_PUBLIC_SUPABASE_URL 或 NEXT_PUBLIC_SUPABASE_ANON_KEY");
@@ -56,15 +65,16 @@ export function getReviewerSupabaseClient() {
   return createClient(supabaseUrl, supabaseAnonKey);
 }
 
-export async function uploadReviewerPdf(file: File, userId = "anonymous"): Promise<ReviewUploadMeta> {
+export async function uploadReviewerPdf(file: File, userId: string): Promise<ReviewUploadMeta> {
   assertPdf(file);
+  const currentUser = normalizeReviewerUserId(userId);
   const res = await fetch("/api/reviewer/upload-url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       fileName: file.name,
       contentType: file.type || "application/pdf",
-      userId: userId || "anonymous",
+      userId: currentUser,
     }),
   });
   const json = await res.json();
@@ -90,11 +100,12 @@ export async function uploadReviewerPdf(file: File, userId = "anonymous"): Promi
   };
 }
 
-export async function submitReviewerJob(files: ReviewUploadMeta[], userId = "anonymous"): Promise<{ jobId: string }> {
+export async function submitReviewerJob(files: ReviewUploadMeta[], userId: string): Promise<{ jobId: string }> {
+  const currentUser = normalizeReviewerUserId(userId);
   const res = await fetch("/api/reviewer/submit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ papers: files, userId: userId || "anonymous" }),
+    body: JSON.stringify({ papers: files, userId: currentUser }),
   });
   const json = await res.json();
   if (!res.ok || !json.ok) {
@@ -103,9 +114,9 @@ export async function submitReviewerJob(files: ReviewUploadMeta[], userId = "ano
   return { jobId: json.jobId };
 }
 
-export async function fetchReviewerJob(jobId: string, userId = ""): Promise<ReviewJobStatus> {
-  const query = new URLSearchParams({ jobId });
-  if (userId) query.set("userId", userId);
+export async function fetchReviewerJob(jobId: string, userId: string): Promise<ReviewJobStatus> {
+  const currentUser = normalizeReviewerUserId(userId);
+  const query = new URLSearchParams({ jobId, userId: currentUser });
   const res = await fetch(`/api/reviewer/status?${query.toString()}`, {
     method: "GET",
     cache: "no-store",
@@ -118,9 +129,11 @@ export async function fetchReviewerJob(jobId: string, userId = ""): Promise<Revi
 }
 
 
-export async function listReviewerHistory(userId = "anonymous", limit = 20): Promise<ReviewHistoryJob[]> {
+export async function listReviewerHistory(userId: string, limit = 20): Promise<ReviewHistoryJob[]> {
+  const currentUser = String(userId || "").trim();
+  if (!currentUser) return [];
   const query = new URLSearchParams({
-    userId: userId || "anonymous",
+    userId: currentUser,
     limit: String(limit || 20),
   });
   const res = await fetch(`/api/reviewer/history?${query.toString()}`, {
