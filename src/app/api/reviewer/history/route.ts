@@ -7,7 +7,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const userId = req.nextUrl.searchParams.get("userId") || req.nextUrl.searchParams.get("user_id") || "anonymous";
+    const userId = (req.nextUrl.searchParams.get("userId") || req.nextUrl.searchParams.get("user_id") || "").trim();
+    const loweredUserId = userId.toLowerCase();
+    if (!userId || loweredUserId === "anonymous" || loweredUserId === "legacy_anonymous") {
+      return NextResponse.json({ ok: false, error: "请先输入有效账号名登录，不能使用 anonymous" }, { status: 401 });
+    }
     const limitRaw = Number(req.nextUrl.searchParams.get("limit") || 20);
     const limit = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 20, 50));
 
@@ -24,7 +28,7 @@ export async function GET(req: NextRequest) {
     const { data: jobs, error: jobsError } = await admin
       .from("review_jobs")
       .select("id, user_id, status, message, paper_count, completed_count, failed_count, final_result, created_at, updated_at, completed_at")
-      .eq("user_id", userId || "anonymous")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -59,7 +63,7 @@ export async function GET(req: NextRequest) {
       papers: papersByJob.get(job.id) || [],
     }));
 
-    return NextResponse.json({ ok: true, userId: userId || "anonymous", jobs: result });
+    return NextResponse.json({ ok: true, userId, jobs: result });
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message || "获取历史审稿记录失败" }, { status: 500 });
   }
