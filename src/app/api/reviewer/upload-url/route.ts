@@ -41,9 +41,10 @@ export async function POST(req: NextRequest) {
     const contentType = String(body.contentType || "application/pdf");
     const rawUserId = String(body.userId || body.user_id || "").trim();
 
-    if (!rawUserId) {
+    const loweredUserId = rawUserId.toLowerCase();
+    if (!rawUserId || loweredUserId === "anonymous" || loweredUserId === "legacy_anonymous") {
       return NextResponse.json(
-        { ok: false, error: "请先输入账号名登录" },
+        { ok: false, error: "请先输入有效账号名登录，不能使用 anonymous" },
         { status: 401 },
       );
     }
