@@ -60,15 +60,46 @@ function splitReportItem(item: string) {
   return { title, body };
 }
 
-function getClientUserId() {
-  if (typeof window === "undefined") return "anonymous";
+function normalizeAccountName(value: string) {
+  const user = String(value || "").trim();
+  const lowered = user.toLowerCase();
+  if (!user || lowered === "anonymous" || lowered === "legacy_anonymous") {
+    return "";
+  }
+  return user;
+}
 
-  return (
+function getClientUserId() {
+  if (typeof window === "undefined") return "";
+
+  const user = normalizeAccountName(
     window.localStorage.getItem("user_id") ||
-    window.localStorage.getItem("username") ||
-    window.localStorage.getItem("current_user") ||
-    "anonymous"
+      window.localStorage.getItem("username") ||
+      window.localStorage.getItem("current_user") ||
+      "",
   );
+
+  if (!user) {
+    clearClientUserId();
+  }
+
+  return user;
+}
+
+function saveClientUserId(value: string) {
+  if (typeof window === "undefined") return;
+  const user = normalizeAccountName(value);
+  if (!user) return;
+  window.localStorage.setItem("user_id", user);
+  window.localStorage.setItem("username", user);
+  window.localStorage.setItem("current_user", user);
+}
+
+function clearClientUserId() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem("user_id");
+  window.localStorage.removeItem("username");
+  window.localStorage.removeItem("current_user");
 }
 
 function formatHistoryTime(value?: string | null) {
@@ -84,11 +115,12 @@ export default function ReviewerPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<UiStatus>("idle");
   const [message, setMessage] = useState(
-    "请选择需要审稿的 PDF 文件。支持批量上传。",
+    "请输入账号名后开始使用审稿系统。",
   );
   const [jobId, setJobId] = useState<string>("");
   const [jobState, setJobState] = useState<ReviewJobStatus | null>(null);
-  const [userId, setUserId] = useState<string>("anonymous");
+  const [userId, setUserId] = useState<string>("");
+  const [accountName, setAccountName] = useState<string>("");
   const [history, setHistory] = useState<ReviewHistoryJob[]>([]);
   const [error, setError] = useState<string>("");
   const pollingRef = useRef<number | null>(null);
@@ -142,14 +174,54 @@ export default function ReviewerPage() {
   useEffect(() => {
     const uid = getClientUserId();
     setUserId(uid);
-    refreshHistory(uid).catch(() => {});
+    setAccountName(uid);
+    if (uid) {
+      refreshHistory(uid).catch(() => {});
+    } else {
+      setMessage("请输入账号名后开始使用审稿系统。");
+    }
     return clearPolling;
   }, []);
 
   async function refreshHistory(uid = userId) {
-    if (!uid) return;
-    const items = await listReviewerHistory(uid, 20);
+    const currentUser = String(uid || "").trim();
+    if (!currentUser) {
+      setHistory([]);
+      return;
+    }
+    const items = await listReviewerHistory(currentUser, 20);
     setHistory(items);
+  }
+
+  function handleAccountLogin() {
+    const nextUser = normalizeAccountName(accountName);
+    if (!nextUser) {
+      setError("请输入有效账号名，不能使用 anonymous 或 legacy_anonymous。");
+      return;
+    }
+    clearPolling();
+    saveClientUserId(nextUser);
+    setUserId(nextUser);
+    setJobId("");
+    setJobState(null);
+    setHistory([]);
+    setStatus("idle");
+    setError("");
+    setMessage(`已进入账号：${nextUser}`);
+    refreshHistory(nextUser).catch((e) => setError(e.message || String(e)));
+  }
+
+  function handleAccountLogout() {
+    clearPolling();
+    clearClientUserId();
+    setUserId("");
+    setAccountName("");
+    setJobId("");
+    setJobState(null);
+    setHistory([]);
+    setStatus("idle");
+    setMessage("请输入账号名后开始使用审稿系统。");
+    setError("");
   }
 
   function openHistoryJob(id: string) {
@@ -197,6 +269,10 @@ export default function ReviewerPage() {
   async function handleSubmit() {
     try {
       setError("");
+      if (!userId.trim()) {
+        setError("请先输入账号名登录。每个账号只读取自己的历史审稿记录。");
+        return;
+      }
       if (!files.length) {
         setError("请至少选择一个 PDF 文件。");
         return;
@@ -1093,6 +1169,52 @@ export default function ReviewerPage() {
           </div>
         </section>
 
+
+
+        {!userId && (
+          <section className="reviewer-card" style={{ marginTop: 24 }}>
+            <div className="reviewer-card-header">
+              <div>
+                <h2 className="reviewer-card-title">账号登录</h2>
+                <p className="reviewer-card-desc">
+                  请输入你的账号名。系统会根据账号名读取和保存对应的历史审稿记录，不需要密码或手机号验证。
+                </p>
+              </div>
+            </div>
+            <div className="reviewer-card-body">
+              <div style={{ display: "grid", gap: 14 }}>
+                <input
+                  value={accountName}
+                  onChange={(event) => setAccountName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleAccountLogin();
+                  }}
+                  placeholder="请输入账号名，例如 liuyixing"
+                  style={{
+                    width: "100%",
+                    padding: "14px 16px",
+                    border: "1px solid var(--reviewer-border-strong)",
+                    borderRadius: 14,
+                    fontSize: 15,
+                    outline: "none",
+                    color: "var(--reviewer-text)",
+                    background: "#fff",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAccountLogin}
+                  className="reviewer-button reviewer-button-primary"
+                  style={{ width: "fit-content" }}
+                >
+                  进入审稿系统
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+        {userId && (
+          <>
         <div className="reviewer-grid">
           <section className="reviewer-card">
             <div className="reviewer-card-header">
@@ -1261,16 +1383,25 @@ export default function ReviewerPage() {
                 <div>
                   <h2 className="reviewer-card-title">历史审稿记录</h2>
                   <p className="reviewer-card-desc">
-                    当前浏览器用户：{userId || "anonymous"}
+                    当前账号：{userId}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => refreshHistory(userId).catch((e) => setError(e.message || String(e)))}
-                  className="reviewer-button reviewer-button-secondary reviewer-page-refresh-button"
-                >
-                  刷新历史
-                </button>
+                <div className="reviewer-history-actions">
+                  <button
+                    type="button"
+                    onClick={() => refreshHistory(userId).catch((e) => setError(e.message || String(e)))}
+                    className="reviewer-button reviewer-button-secondary reviewer-page-refresh-button"
+                  >
+                    刷新历史
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAccountLogout}
+                    className="reviewer-button reviewer-button-secondary reviewer-page-refresh-button"
+                  >
+                    切换账号
+                  </button>
+                </div>
               </div>
 
               <div className="reviewer-card-body">
@@ -1410,6 +1541,8 @@ export default function ReviewerPage() {
               </div>
             </div>
           </section>
+        )}
+          </>
         )}
       </div>
     </main>
