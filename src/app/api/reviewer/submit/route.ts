@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const papers = Array.isArray(body.papers) ? body.papers : [];
+    const userId = String(body.userId || body.user_id || "anonymous").trim() || "anonymous";
 
     if (!papers.length) {
       return NextResponse.json({ ok: false, error: "至少上传一篇 PDF" }, { status: 400 });
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
 
     const form = new FormData();
     form.append("papers", JSON.stringify(signedPapers));
+    form.append("user_id", userId);
 
     // The Modal endpoint should now return quickly. This timeout prevents an
     // indefinitely pending request and converts connection failures into a
@@ -141,6 +143,7 @@ export async function POST(req: NextRequest) {
       jobId: json.jobId,
       paperCount: json.paperCount,
       dispatchMode: json.dispatchMode,
+      userId: json.userId || userId,
     });
   } catch (error: any) {
     return NextResponse.json(
