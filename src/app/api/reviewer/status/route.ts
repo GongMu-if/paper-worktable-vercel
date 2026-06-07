@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const jobId = req.nextUrl.searchParams.get("jobId") || "";
+    const userId = req.nextUrl.searchParams.get("userId") || req.nextUrl.searchParams.get("user_id") || "";
     if (!jobId) {
       return NextResponse.json({ ok: false, error: "缺少 jobId" }, { status: 400 });
     }
@@ -22,11 +23,16 @@ export async function GET(req: NextRequest) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data: job, error: jobError } = await admin
+    let jobQuery = admin
       .from("review_jobs")
       .select("*")
-      .eq("id", jobId)
-      .single();
+      .eq("id", jobId);
+
+    if (userId) {
+      jobQuery = jobQuery.eq("user_id", userId);
+    }
+
+    const { data: job, error: jobError } = await jobQuery.single();
     if (jobError || !job) {
       return NextResponse.json({ ok: false, error: jobError?.message || "任务不存在" }, { status: 404 });
     }
