@@ -4,6 +4,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchReviewerJob,
+  listReviewerHistory,
+  ReviewHistoryJob,
   ReviewJobStatus,
   ReviewUploadMeta,
   submitReviewerJob,
@@ -58,6 +60,26 @@ function splitReportItem(item: string) {
   return { title, body };
 }
 
+function getClientUserId() {
+  if (typeof window === "undefined") return "anonymous";
+
+  return (
+    window.localStorage.getItem("user_id") ||
+    window.localStorage.getItem("username") ||
+    window.localStorage.getItem("current_user") ||
+    "anonymous"
+  );
+}
+
+function formatHistoryTime(value?: string | null) {
+  if (!value) return "-";
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return String(value);
+  }
+}
+
 export default function ReviewerPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<UiStatus>("idle");
@@ -66,6 +88,8 @@ export default function ReviewerPage() {
   );
   const [jobId, setJobId] = useState<string>("");
   const [jobState, setJobState] = useState<ReviewJobStatus | null>(null);
+  const [userId, setUserId] = useState<string>("anonymous");
+  const [history, setHistory] = useState<ReviewHistoryJob[]>([]);
   const [error, setError] = useState<string>("");
   const pollingRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -91,7 +115,7 @@ export default function ReviewerPage() {
   }
 
   async function poll(id: string) {
-    const state = await fetchReviewerJob(id);
+    const state = await fetchReviewerJob(id, userId);
     setJobState(state);
     setMessage(state.job.message || statusText(state.job.status));
     if (
@@ -101,6 +125,7 @@ export default function ReviewerPage() {
     ) {
       clearPolling();
       setStatus(state.job.status === "failed" ? "failed" : "completed");
+      refreshHistory(userId).catch(() => {});
     } else {
       setStatus("running");
     }
@@ -114,7 +139,24 @@ export default function ReviewerPage() {
     }, 3000);
   }
 
-  useEffect(() => clearPolling, []);
+  useEffect(() => {
+    const uid = getClientUserId();
+    setUserId(uid);
+    refreshHistory(uid).catch(() => {});
+    return clearPolling;
+  }, []);
+
+  async function refreshHistory(uid = userId) {
+    if (!uid) return;
+    const items = await listReviewerHistory(uid, 20);
+    setHistory(items);
+  }
+
+  function openHistoryJob(id: string) {
+    setJobId(id);
+    setMessage("正在读取历史审稿记录...");
+    startPolling(id);
+  }
 
   function addFiles(selected: File[]) {
     const pdfs = selected.filter(
@@ -165,12 +207,12 @@ export default function ReviewerPage() {
       const uploaded: ReviewUploadMeta[] = [];
       for (let i = 0; i < files.length; i++) {
         setMessage(`正在上传：${files[i].name}（${i + 1}/${files.length}）`);
-        uploaded.push(await uploadReviewerPdf(files[i]));
+        uploaded.push(await uploadReviewerPdf(files[i], userId));
       }
 
       setStatus("submitted");
       setMessage("上传完成，正在提交 Modal 审稿任务...");
-      const { jobId } = await submitReviewerJob(uploaded);
+      const { jobId } = await submitReviewerJob(uploaded, userId);
       setJobId(jobId);
       setMessage("任务已提交，正在处理...");
       startPolling(jobId);
@@ -892,6 +934,32 @@ export default function ReviewerPage() {
           line-height: 1.6;
         }
 
+
+        .reviewer-history-item {
+          cursor: pointer;
+          text-align: left;
+          transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+        }
+
+        .reviewer-history-item:hover {
+          transform: translateY(-1px);
+          border-color: rgba(37, 99, 235, 0.45);
+          box-shadow: 0 12px 24px rgba(15, 23, 42, 0.07);
+        }
+
+        .reviewer-history-meta {
+          margin-top: 7px;
+          color: var(--reviewer-muted-2);
+          font-size: 11px;
+          line-height: 1.45;
+        }
+
+        .reviewer-history-actions {
+          margin-top: 12px;
+          display: flex;
+          justify-content: flex-end;
+        }
+
         .reviewer-final {
           margin-top: 22px;
         }
@@ -1182,6 +1250,66 @@ export default function ReviewerPage() {
 
                 {jobId && (
                   <div className="reviewer-job-id">Job ID: {jobId}</div>
+                )}
+              </div>
+            </section>
+
+
+
+            <section className="reviewer-card">
+              <div className="reviewer-card-header">
+                <div>
+                  <h2 className="reviewer-card-title">历史审稿记录</h2>
+                  <p className="reviewer-card-desc">
+                    当前浏览器用户：{userId || "anonymous"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => refreshHistory(userId).catch((e) => setError(e.message || String(e)))}
+                  className="reviewer-button reviewer-button-secondary reviewer-page-refresh-button"
+                >
+                  刷新历史
+                </button>
+              </div>
+
+              <div className="reviewer-card-body">
+                {history.length ? (
+                  <div className="reviewer-queue-list">
+                    {history.map((item) => {
+                      const firstPaper = item.papers?.[0];
+                      const displayName =
+                        firstPaper?.file_name ||
+                        (item.paper_count > 1 ? `批量审稿任务（${item.paper_count} 篇）` : "历史审稿任务");
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => openHistoryJob(item.id)}
+                          className="reviewer-queue-item reviewer-history-item"
+                        >
+                          <div className="reviewer-queue-top">
+                            <div className="reviewer-queue-main">
+                              <div className="reviewer-queue-name">{displayName}</div>
+                              <div className="reviewer-queue-message">
+                                {item.message || statusText(item.status)}
+                              </div>
+                              <div className="reviewer-history-meta">
+                                {formatHistoryTime(item.created_at)} · {item.completed_count || 0}/{item.paper_count || 0} 完成
+                              </div>
+                            </div>
+                            <span
+                              className={`reviewer-status-badge ${statusBadgeClass(item.status)}`}
+                            >
+                              {statusText(item.status)}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="reviewer-empty">暂无历史审稿记录。</div>
                 )}
               </div>
             </section>
