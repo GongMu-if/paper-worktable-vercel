@@ -16,7 +16,11 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const papers = Array.isArray(body.papers) ? body.papers : [];
-    const userId = String(body.userId || body.user_id || "anonymous").trim() || "anonymous";
+    const userId = String(body.userId || body.user_id || "").trim();
+    const loweredUserId = userId.toLowerCase();
+    if (!userId || loweredUserId === "anonymous" || loweredUserId === "legacy_anonymous") {
+      return NextResponse.json({ ok: false, error: "请先输入有效账号名登录，不能使用 anonymous" }, { status: 401 });
+    }
 
     if (!papers.length) {
       return NextResponse.json({ ok: false, error: "至少上传一篇 PDF" }, { status: 400 });
