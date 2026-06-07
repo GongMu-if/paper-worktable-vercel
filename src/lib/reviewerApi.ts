@@ -24,14 +24,22 @@ export type ReviewPaperStatus = {
 export type ReviewJobStatus = {
   job: {
     id: string;
+    user_id?: string | null;
     status: string;
     message?: string | null;
     paper_count: number;
     completed_count: number;
     failed_count: number;
     final_result?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+    completed_at?: string | null;
   };
   papers: ReviewPaperStatus[];
+};
+
+export type ReviewHistoryJob = ReviewJobStatus["job"] & {
+  papers?: ReviewPaperStatus[];
 };
 
 function assertPdf(file: File) {
@@ -48,12 +56,16 @@ export function getReviewerSupabaseClient() {
   return createClient(supabaseUrl, supabaseAnonKey);
 }
 
-export async function uploadReviewerPdf(file: File): Promise<ReviewUploadMeta> {
+export async function uploadReviewerPdf(file: File, userId = "anonymous"): Promise<ReviewUploadMeta> {
   assertPdf(file);
   const res = await fetch("/api/reviewer/upload-url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileName: file.name, contentType: file.type || "application/pdf" }),
+    body: JSON.stringify({
+      fileName: file.name,
+      contentType: file.type || "application/pdf",
+      userId: userId || "anonymous",
+    }),
   });
   const json = await res.json();
   if (!res.ok || !json.ok) {
@@ -78,11 +90,11 @@ export async function uploadReviewerPdf(file: File): Promise<ReviewUploadMeta> {
   };
 }
 
-export async function submitReviewerJob(files: ReviewUploadMeta[]): Promise<{ jobId: string }> {
+export async function submitReviewerJob(files: ReviewUploadMeta[], userId = "anonymous"): Promise<{ jobId: string }> {
   const res = await fetch("/api/reviewer/submit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ papers: files }),
+    body: JSON.stringify({ papers: files, userId: userId || "anonymous" }),
   });
   const json = await res.json();
   if (!res.ok || !json.ok) {
@@ -91,8 +103,10 @@ export async function submitReviewerJob(files: ReviewUploadMeta[]): Promise<{ jo
   return { jobId: json.jobId };
 }
 
-export async function fetchReviewerJob(jobId: string): Promise<ReviewJobStatus> {
-  const res = await fetch(`/api/reviewer/status?jobId=${encodeURIComponent(jobId)}`, {
+export async function fetchReviewerJob(jobId: string, userId = ""): Promise<ReviewJobStatus> {
+  const query = new URLSearchParams({ jobId });
+  if (userId) query.set("userId", userId);
+  const res = await fetch(`/api/reviewer/status?${query.toString()}`, {
     method: "GET",
     cache: "no-store",
   });
@@ -101,4 +115,21 @@ export async function fetchReviewerJob(jobId: string): Promise<ReviewJobStatus> 
     throw new Error(json.error || "获取审稿任务状态失败");
   }
   return { job: json.job, papers: json.papers || [] };
+}
+
+
+export async function listReviewerHistory(userId = "anonymous", limit = 20): Promise<ReviewHistoryJob[]> {
+  const query = new URLSearchParams({
+    userId: userId || "anonymous",
+    limit: String(limit || 20),
+  });
+  const res = await fetch(`/api/reviewer/history?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+  });
+  const json = await res.json();
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || "获取历史审稿记录失败");
+  }
+  return json.jobs || [];
 }
