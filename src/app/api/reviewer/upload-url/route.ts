@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     // 这个 fileName 只用于展示/传给后端，不再拼进 Storage path
     const fileName = sanitizeFileName(String(body.fileName || "paper.pdf"));
     const contentType = String(body.contentType || "application/pdf");
+    const userId = sanitizePathSegment(String(body.userId || body.user_id || "anonymous"));
 
     if (
       contentType !== "application/pdf" &&
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
 
     // 关键修改：
     // Storage path 只使用安全 ASCII 字符，不再拼接中文文件名
-    const path = `review/main/${today}/${id}.pdf`;
+    const path = `review/${userId}/main/${today}/${id}.pdf`;
 
     const { data, error } = await admin.storage
       .from(bucket)
