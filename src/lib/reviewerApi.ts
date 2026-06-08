@@ -146,3 +146,49 @@ export async function listReviewerHistory(userId: string, limit = 20): Promise<R
   }
   return json.jobs || [];
 }
+
+export async function deleteReviewerHistoryJob(
+  userId: string,
+  jobId: string,
+): Promise<{ deletedJobs: number; deletedPapers: number }> {
+  const currentUser = normalizeReviewerUserId(userId);
+  const currentJobId = String(jobId || "").trim();
+  if (!currentJobId) {
+    throw new Error("缺少要删除的历史记录 ID");
+  }
+
+  const res = await fetch("/api/reviewer/history", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ userId: currentUser, jobId: currentJobId }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || "删除历史审稿记录失败");
+  }
+  return {
+    deletedJobs: Number(json.deletedJobs || 0),
+    deletedPapers: Number(json.deletedPapers || 0),
+  };
+}
+
+export async function clearReviewerHistory(
+  userId: string,
+): Promise<{ deletedJobs: number; deletedPapers: number }> {
+  const currentUser = normalizeReviewerUserId(userId);
+  const res = await fetch("/api/reviewer/history", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ userId: currentUser, clearAll: true }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || "清空历史审稿记录失败");
+  }
+  return {
+    deletedJobs: Number(json.deletedJobs || 0),
+    deletedPapers: Number(json.deletedPapers || 0),
+  };
+}
