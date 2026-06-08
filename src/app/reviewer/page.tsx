@@ -3,6 +3,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  clearReviewerHistory,
+  deleteReviewerHistoryJob,
   fetchReviewerJob,
   listReviewerHistory,
   ReviewHistoryJob,
@@ -122,6 +124,8 @@ export default function ReviewerPage() {
   const [userId, setUserId] = useState<string>("");
   const [accountName, setAccountName] = useState<string>("");
   const [history, setHistory] = useState<ReviewHistoryJob[]>([]);
+  const [deletingHistoryId, setDeletingHistoryId] = useState<string>("");
+  const [isClearingHistory, setIsClearingHistory] = useState(false);
   const [error, setError] = useState<string>("");
   const pollingRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -228,6 +232,64 @@ export default function ReviewerPage() {
     setJobId(id);
     setMessage("正在读取历史审稿记录...");
     startPolling(id);
+  }
+
+  async function handleDeleteHistory(id: string) {
+    const currentUser = String(userId || "").trim();
+    if (!currentUser) {
+      setError("请先输入账号名登录。每个账号只能删除自己的历史审稿记录。");
+      return;
+    }
+    if (!id) return;
+    const confirmed = window.confirm("确定删除这条历史审稿记录吗？对应的任务和论文记录会同步从数据库删除。");
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      setDeletingHistoryId(id);
+      if (jobId === id) {
+        clearPolling();
+      }
+      await deleteReviewerHistoryJob(currentUser, id);
+      setHistory((prev) => prev.filter((item) => item.id !== id));
+      if (jobId === id) {
+        setJobId("");
+        setJobState(null);
+        setStatus("idle");
+      }
+      setMessage("历史审稿记录已删除。");
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setDeletingHistoryId("");
+    }
+  }
+
+  async function handleClearHistory() {
+    const currentUser = String(userId || "").trim();
+    if (!currentUser) {
+      setError("请先输入账号名登录。每个账号只能清空自己的历史审稿记录。");
+      return;
+    }
+    if (!history.length) return;
+    const confirmed = window.confirm("确定清空当前账号下的全部历史审稿记录吗？对应的任务和论文记录会同步从数据库删除。");
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      setIsClearingHistory(true);
+      clearPolling();
+      await clearReviewerHistory(currentUser);
+      setHistory([]);
+      setJobId("");
+      setJobState(null);
+      setStatus("idle");
+      setMessage("历史审稿记录已清空。");
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setIsClearingHistory(false);
+    }
   }
 
   function addFiles(selected: File[]) {
@@ -1034,6 +1096,51 @@ export default function ReviewerPage() {
           margin-top: 12px;
           display: flex;
           justify-content: flex-end;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .reviewer-history-open-button {
+          appearance: none;
+          display: block;
+          width: 100%;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: inherit;
+          cursor: pointer;
+          font: inherit;
+          text-align: left;
+        }
+
+        .reviewer-history-delete-button {
+          appearance: none;
+          border: 1px solid rgba(220, 38, 38, 0.18);
+          border-radius: 11px;
+          padding: 8px 11px;
+          background: var(--reviewer-red-soft);
+          color: var(--reviewer-red);
+          cursor: pointer;
+          font: inherit;
+          font-size: 12px;
+          font-weight: 900;
+          transition: transform 160ms ease, opacity 160ms ease, background 160ms ease;
+        }
+
+        .reviewer-history-delete-button:hover:not(:disabled) {
+          transform: translateY(-1px);
+          background: #fee2e2;
+        }
+
+        .reviewer-history-delete-button:disabled {
+          cursor: not-allowed;
+          opacity: 0.5;
+        }
+
+        .reviewer-history-action-row {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 12px;
         }
 
         .reviewer-final {
@@ -1396,6 +1503,14 @@ export default function ReviewerPage() {
                   </button>
                   <button
                     type="button"
+                    onClick={handleClearHistory}
+                    disabled={!history.length || isClearingHistory || Boolean(deletingHistoryId)}
+                    className="reviewer-button reviewer-button-secondary reviewer-page-refresh-button"
+                  >
+                    {isClearingHistory ? "清空中..." : "清空历史"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleAccountLogout}
                     className="reviewer-button reviewer-button-secondary reviewer-page-refresh-button"
                   >
@@ -1413,29 +1528,43 @@ export default function ReviewerPage() {
                         firstPaper?.file_name ||
                         (item.paper_count > 1 ? `批量审稿任务（${item.paper_count} 篇）` : "历史审稿任务");
                       return (
-                        <button
+                        <div
                           key={item.id}
-                          type="button"
-                          onClick={() => openHistoryJob(item.id)}
                           className="reviewer-queue-item reviewer-history-item"
                         >
-                          <div className="reviewer-queue-top">
-                            <div className="reviewer-queue-main">
-                              <div className="reviewer-queue-name">{displayName}</div>
-                              <div className="reviewer-queue-message">
-                                {item.message || statusText(item.status)}
+                          <button
+                            type="button"
+                            onClick={() => openHistoryJob(item.id)}
+                            className="reviewer-history-open-button"
+                          >
+                            <div className="reviewer-queue-top">
+                              <div className="reviewer-queue-main">
+                                <div className="reviewer-queue-name">{displayName}</div>
+                                <div className="reviewer-queue-message">
+                                  {item.message || statusText(item.status)}
+                                </div>
+                                <div className="reviewer-history-meta">
+                                  {formatHistoryTime(item.created_at)} · {item.completed_count || 0}/{item.paper_count || 0} 完成
+                                </div>
                               </div>
-                              <div className="reviewer-history-meta">
-                                {formatHistoryTime(item.created_at)} · {item.completed_count || 0}/{item.paper_count || 0} 完成
-                              </div>
+                              <span
+                                className={`reviewer-status-badge ${statusBadgeClass(item.status)}`}
+                              >
+                                {statusText(item.status)}
+                              </span>
                             </div>
-                            <span
-                              className={`reviewer-status-badge ${statusBadgeClass(item.status)}`}
+                          </button>
+                          <div className="reviewer-history-action-row">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteHistory(item.id)}
+                              disabled={isClearingHistory || deletingHistoryId === item.id}
+                              className="reviewer-history-delete-button"
                             >
-                              {statusText(item.status)}
-                            </span>
+                              {deletingHistoryId === item.id ? "删除中..." : "删除记录"}
+                            </button>
                           </div>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
