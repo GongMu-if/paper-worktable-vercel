@@ -6,8 +6,6 @@ import {
   getIntroLogs,
   listIntroJobs,
   submitDirectReferencePapers,
-  submitReferencePaper,
-  submitSupportingPapers,
   type IntroJob,
 } from "@/lib/introApi";
 
@@ -41,8 +39,8 @@ function statusText(status?: string) {
     created: "已创建",
     queued: "排队中",
     processing: "处理中",
-    awaiting_supporting_papers: "等待上传补充论文",
-    direct_reference_generation: "直接参考论文生成中",
+    reference_group_generation: "参考论文组生成中",
+    direct_reference_generation: "参考论文组生成中",
     finished: "已完成",
     failed: "失败",
     loading: "加载中",
@@ -55,23 +53,23 @@ function stageText(stage?: string) {
   const value = String(stage || "").toLowerCase();
   const map: Record<string, string> = {
     created: "已创建",
-    reference_submitted: "主论文已提交",
-    reference_analysis: "主参考论文分析",
-    same_problem_search: "同问题论文检索",
-    direct_reference_submitted: "直接参考论文已提交",
-    direct_reference_analysis: "直接参考论文分析",
-    direct_reference_generation: "直接参考论文生成",
+    direct_reference_submitted: "参考论文组已提交",
+    reference_group_submitted: "参考论文组已提交",
+    direct_reference_analysis: "参考论文组解析",
+    reference_group_analysis: "参考论文组解析",
+    section_report_generation: "分章节解析报告生成",
+    rag_indexing: "临时 RAG 切片入库",
+    dynamic_rag_reasoning: "动态检索与推理",
+    reference_group_generation: "参考论文组引言生成",
+    direct_reference_generation: "参考论文组引言生成",
     manuscript_context_analysis: "正文 PDF 增强分析",
-    awaiting_supporting_papers: "等待上传补充论文",
-    supporting_paper_analysis: "补充论文分析",
     field_knowledge: "领域知识综合",
     citation_planning: "引用规划",
     introduction_writing: "英文 Introduction 写作",
     review_revision: "审稿与修改",
     finished: "已完成",
-    reference_stage_failed: "主参考论文阶段失败",
     generation_stage_failed: "生成阶段失败",
-    direct_reference_stage_failed: "直接参考论文阶段失败",
+    direct_reference_stage_failed: "参考论文组阶段失败",
   };
   return map[value] || stage || "等待中";
 }
@@ -88,12 +86,8 @@ function 阶段Pill({ stage }: { stage?: string }) {
 export default function IntroductionWriterPage() {
   const [userId, setUserId] = useState("");
   const [innovationText, setInnovationText] = useState("");
-  const [workflowMode, setWorkflowMode] = useState<"search_assisted" | "direct_reference_set">("search_assisted");
-  const [mainFile, setMainFile] = useState<File | null>(null);
   const [directFiles, setDirectFiles] = useState<File[]>([]);
   const [manuscriptFile, setManuscriptFile] = useState<File | null>(null);
-
-  const [supportFiles, setSupportFiles] = useState<File[]>([]);
 
   const [jobId, setJobId] = useState("");
   const [job, setJob] = useState<IntroJob | null>(null);
@@ -168,73 +162,6 @@ export default function IntroductionWriterPage() {
     ).slice(0, maxCount);
   }
 
-  async function handleSubmitReference() {
-    if (!mainFile) {
-      setMessage("请上传主参考论文 PDF。");
-      return;
-    }
-
-    if (!innovationText.trim()) {
-      setMessage("请先填写创新点。");
-      return;
-    }
-
-    setLoading(true);
-    setMessage("");
-
-    try {
-      const result = await submitReferencePaper({
-        userId,
-        innovationText,
-        sourceName: mainFile.name,
-        file: mainFile,
-        manuscriptFile,
-      });
-
-      if (result?.job_id) {
-        setJobId(result.job_id);
-        setMessage("主参考论文已提交，系统正在分析。");
-        await refreshHistory(userId);
-      } else {
-        setMessage(result?.message || "提交成功，但后端未返回任务 ID。");
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleSubmitSupporting() {
-    if (!jobId) {
-      setMessage("缺少任务 ID。");
-      return;
-    }
-
-    if (supportFiles.length < 2 || supportFiles.length > 6) {
-      setMessage("请上传 2-6 篇同问题或创新点相关补充论文。");
-      return;
-    }
-
-    setLoading(true);
-    setMessage("");
-
-    try {
-      await submitSupportingPapers({
-        jobId,
-        files: supportFiles,
-        manuscriptFile,
-      });
-
-      setMessage("补充论文已提交，系统正在学习上传论文并生成英文 Introduction。");
-      await refreshJob(jobId);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
-    }
-  }
-
 
   async function handleSubmitDirectReferences() {
     if (directFiles.length < 2 || directFiles.length > 7) {
@@ -260,7 +187,7 @@ export default function IntroductionWriterPage() {
 
       if (result?.job_id) {
         setJobId(result.job_id);
-        setMessage("参考论文组已提交，系统将跳过搜索阶段并直接阅读论文生成英文 Introduction。");
+        setMessage("参考论文组已提交，系统正在分章节解析、构建临时 RAG 并生成英文 Introduction。");
         await refreshHistory(userId);
       } else {
         setMessage(result?.message || "提交成功，但后端未返回任务 ID。");
@@ -694,7 +621,8 @@ export default function IntroductionWriterPage() {
           color: #92400e;
         }
 
-        .intro-badge-awaiting_supporting_papers {
+        .intro-badge-reference_group_generation,
+        .intro-badge-direct_reference_generation {
           background: var(--intro-primary-soft);
           color: #1d4ed8;
         }
@@ -950,7 +878,7 @@ export default function IntroductionWriterPage() {
             </div>
             <h1 className="intro-title">英文 Introduction 生成器</h1>
             <p className="intro-subtitle">
-              可以选择“种子论文检索推荐”或“直接上传参考论文组”两条路径。正文/结果内容可作为增强信息叠加到任一路径中，用于更真实地描述创新点和研究动机。
+              只需上传参考论文组并填写创新点。系统会解析参考论文的摘要、引言、讨论和结论，构建临时 RAG 证据库，并通过写作 Agent 与审查 Agent 迭代生成英文 Introduction。
             </p>
           </div>
 
@@ -958,22 +886,22 @@ export default function IntroductionWriterPage() {
             <div className="intro-step-mini">
               <div className="intro-step-index">1</div>
               <div>
-                <p className="intro-step-mini-title">选择写作路径</p>
-                <p className="intro-step-mini-text">可用种子论文检索推荐，也可直接上传参考论文组。</p>
+                <p className="intro-step-mini-title">上传参考论文组</p>
+                <p className="intro-step-mini-text">直接上传 2-7 篇参考论文，作为唯一文献来源。</p>
               </div>
             </div>
             <div className="intro-step-mini">
               <div className="intro-step-index">2</div>
               <div>
-                <p className="intro-step-mini-title">可选正文增强</p>
-                <p className="intro-step-mini-text">粘贴已有正文、结果或讨论，帮助更准确描述创新点。</p>
+                <p className="intro-step-mini-title">构建临时 RAG</p>
+                <p className="intro-step-mini-text">系统切片暂存解析报告，写作与审查时动态检索。</p>
               </div>
             </div>
             <div className="intro-step-mini">
               <div className="intro-step-index">3</div>
               <div>
-                <p className="intro-step-mini-title">生成英文 Introduction</p>
-                <p className="intro-step-mini-text">写作 Agent 与审稿 Agent 最多迭代 10 轮。</p>
+                <p className="intro-step-mini-title">审查修改闭环</p>
+                <p className="intro-step-mini-text">审查 Agent 读取证据库后指出问题，并交由写作 Agent 修改。</p>
               </div>
             </div>
           </div>
@@ -991,40 +919,15 @@ export default function IntroductionWriterPage() {
             <section className="intro-card">
               <div className="intro-card-header">
                 <div className="intro-card-title-wrap">
-                  <h2 className="intro-card-title">步骤 1 · 选择路径、参考论文与创新点</h2>
+                  <h2 className="intro-card-title">步骤 1 · 上传参考论文组与创新点</h2>
                   <p className="intro-card-desc">
-                    这里可以填写中文创新点；最终生成的 Introduction 只会是英文。正文增强信息可选填写。
+                    这里可以填写中文创新点；最终生成的 Introduction 只会是英文，并且只引用你上传的参考论文组。
                   </p>
                 </div>
               </div>
 
               <div className="intro-card-body">
                 <div className="intro-form-grid">
-
-                  <div>
-                    <label className="intro-label">写作路径</label>
-                    <div className="intro-button-row">
-                      <button
-                        type="button"
-                        onClick={() => setWorkflowMode("search_assisted")}
-                        className={`intro-button ${workflowMode === "search_assisted" ? "" : "intro-button-secondary"}`}
-                        disabled={loading}
-                      >
-                        路径一：种子论文检索推荐
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setWorkflowMode("direct_reference_set")}
-                        className={`intro-button ${workflowMode === "direct_reference_set" ? "" : "intro-button-secondary"}`}
-                        disabled={loading}
-                      >
-                        路径二：直接上传参考论文组
-                      </button>
-                    </div>
-                    <p className="intro-card-desc" style={{ marginTop: 8 }}>
-                      路径一会先搜索候选同问题论文；路径二跳过搜索，直接学习你上传的 2-7 篇参考论文。
-                    </p>
-                  </div>
 
                   <div>
                     <label className="intro-label">创新点</label>
@@ -1036,6 +939,34 @@ export default function IntroductionWriterPage() {
                         "请描述你的研究问题、任务对象、方法思路和 2–4 个创新点。例如：本文针对……问题，提出……方法，以解决……不足。"
                       }
                     />
+                  </div>
+
+                  <div>
+                    <label className="intro-label">参考论文 PDF（2-7 篇）</label>
+                    <div className="intro-file-box">
+                      <div className="intro-file-info">
+                        <p className="intro-file-title">批量上传参考论文组</p>
+                        <p className="intro-file-name">
+                          {directFiles.length > 0
+                            ? `已选择 ${directFiles.length} 篇：${directFiles.map((file) => file.name).join("；")}`
+                            : "尚未选择文件"}
+                        </p>
+                      </div>
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        multiple
+                        onChange={(event) => {
+                          const selectedFiles = Array.from(event.target.files || []);
+                          setDirectFiles((prevFiles) => mergeUniqueFiles(prevFiles, selectedFiles, 7));
+                          event.target.value = "";
+                        }}
+                        className="intro-file-input"
+                      />
+                    </div>
+                    <p className="intro-card-desc" style={{ marginTop: 8 }}>
+                      上传 2-7 篇参考论文。系统只从这些论文中抽取证据、构建临时 RAG，并且最终 Introduction 只引用这些参考论文。
+                    </p>
                   </div>
 
                   <div>
@@ -1055,69 +986,17 @@ export default function IntroductionWriterPage() {
                       />
                     </div>
                     <p className="intro-card-desc" style={{ marginTop: 8 }}>
-                      可选上传你已经写好的正文 PDF，例如 Method、Results、Discussion 或 Conclusion。系统会解析该 PDF，提取本文真实研究上下文和结果性线索，用于更准确地描述创新点；它不会替代文献引用。
+                      可选上传你已经写好的正文 PDF，例如 Method、Results、Discussion 或 Conclusion。系统会解析该 PDF，提取本文真实研究上下文和结果性线索，用于更准确地描述创新点；它不会替代参考论文组引用。
                     </p>
                   </div>
 
-                  {workflowMode === "search_assisted" ? (
-                    <div>
-                      <label className="intro-label">主参考论文 PDF</label>
-                    <div className="intro-file-box">
-                      <div className="intro-file-info">
-                        <p className="intro-file-title">上传主参考论文</p>
-                        <p className="intro-file-name">
-                          {mainFile ? mainFile.name : "尚未选择文件"}
-                        </p>
-                      </div>
-                      <input
-                        type="file"
-                        accept="application/pdf"
-                        onChange={(event) => setMainFile(event.target.files?.[0] || null)}
-                        className="intro-file-input"
-                      />
-                    </div>
-                  </div>
-                  ) : (
-                    <div>
-                      <label className="intro-label">参考论文 PDF（2-7 篇）</label>
-                      <div className="intro-file-box">
-                        <div className="intro-file-info">
-                          <p className="intro-file-title">批量上传参考论文组</p>
-                          <p className="intro-file-name">
-                            {directFiles.length > 0
-                              ? `已选择 ${directFiles.length} 篇：${directFiles.map((file) => file.name).join("；")}`
-                              : "尚未选择文件"}
-                          </p>
-                        </div>
-                        <input
-                          type="file"
-                          accept="application/pdf"
-                          multiple
-                          onChange={(event) => {
-                            const selectedFiles = Array.from(event.target.files || []);
-                            setDirectFiles((prevFiles) => mergeUniqueFiles(prevFiles, selectedFiles, 7));
-                            event.target.value = "";
-                          }}
-                          className="intro-file-input"
-                        />
-                      </div>
-                      <p className="intro-card-desc" style={{ marginTop: 8 }}>
-                        直接上传 2-7 篇你认为最合适的参考论文，系统将跳过候选论文搜索，直接进行阅读、引用规划和英文 Introduction 写作。
-                      </p>
-                    </div>
-                  )}
-
                   <div className="intro-button-row">
                     <button
-                      onClick={workflowMode === "search_assisted" ? handleSubmitReference : handleSubmitDirectReferences}
+                      onClick={handleSubmitDirectReferences}
                       disabled={loading}
                       className="intro-button"
                     >
-                      {loading
-                        ? "提交中..."
-                        : workflowMode === "search_assisted"
-                          ? "分析主参考论文"
-                          : "直接生成英文 Introduction"}
+                      {loading ? "提交中..." : "生成英文 Introduction"}
                     </button>
                   </div>
                 </div>
@@ -1165,110 +1044,6 @@ export default function IntroductionWriterPage() {
               </section>
             )}
 
-            {job?.status === "awaiting_supporting_papers" && (
-              <section className="intro-card">
-                <div className="intro-card-header">
-                  <div className="intro-card-title-wrap">
-                    <h2 className="intro-card-title">步骤 2 · 上传2-6 篇同问题或创新点相关补充论文</h2>
-                    <p className="intro-card-desc">
-                      可以参考系统推荐结果，也可以手动上传你认为最合适的2-6 篇同问题论文。
-                    </p>
-                  </div>
-                </div>
-
-                <div className="intro-card-body">
-                  <div className="intro-candidate-list">
-                    {Array.isArray(job.same_problem_candidates) &&
-                    job.same_problem_candidates.length > 0 ? (
-                      job.same_problem_candidates.slice(0, 10).map((item: any, index: number) => (
-                        <div
-                          key={`${item?.title || "candidate"}-${index}`}
-                          className="intro-candidate"
-                        >
-                          <p className="intro-candidate-title">
-                            {index + 1}. {item?.title || "未命名任务"}
-                          </p>
-                          <div className="intro-candidate-meta">
-                            <span>年份：{item?.year || "-"}</span>
-                            <span>关系：{item?.relation || "-"}</span>
-                            <span>置信度：{item?.confidence ?? "-"}</span>
-                          </div>
-                          {item?.reason && (
-                            <p className="intro-candidate-reason">{item.reason}</p>
-                          )}
-                          {item?.how_user_should_use_it && (
-                            <p className="intro-candidate-reason">{item.how_user_should_use_it}</p>
-                          )}
-                          {item?.matched_innovation_points?.length > 0 && (
-                            <p className="intro-candidate-reason">
-                              匹配创新点：{item.matched_innovation_points.join("；")}
-                            </p>
-                          )}
-                          {item?.url && (
-                            <a
-                              href={item.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="intro-candidate-url"
-                            >
-                              {item.url}
-                            </a>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="intro-empty">
-                        没有检索到候选论文。你仍然可以手动上传 2-6 篇补充论文。
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ height: 18 }} />
-
-                  <div className="intro-form-grid">
-                    <div>
-                      <label className="intro-label">补充论文 PDF（2-6 篇）</label>
-                      <div className="intro-file-box">
-                        <div className="intro-file-info">
-                          <p className="intro-file-title">批量上传补充论文</p>
-                          <p className="intro-file-name">
-                            {supportFiles.length > 0
-                              ? `已选择 ${supportFiles.length} 篇：${supportFiles.map((file) => file.name).join("；")}`
-                              : "尚未选择文件"}
-                          </p>
-                        </div>
-                        <input
-                          type="file"
-                          accept="application/pdf"
-                          multiple
-                          onChange={(event) => {
-                            const selectedFiles = Array.from(event.target.files || []);
-
-                            setSupportFiles((prevFiles) => mergeUniqueFiles(prevFiles, selectedFiles, 6));
-
-                            event.target.value = "";
-                          }}
-                          className="intro-file-input"
-                        />
-                      </div>
-                      <p className="intro-card-desc" style={{ marginTop: 8 }}>
-                        可上传 2-6 篇。可以一次按住 Ctrl / Shift 多选，也可以多次点击“选择文件”逐篇追加。建议每个创新点匹配 1-2 篇文献，但不是必须每个创新点都上传两篇。
-                      </p>
-                    </div>
-
-                    <div className="intro-button-row">
-                      <button
-                        onClick={handleSubmitSupporting}
-                        disabled={loading}
-                        className="intro-button"
-                      >
-                        {loading ? "提交中..." : "生成英文 Introduction"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            )}
 
             {job?.status === "finished" && (
               <section className="intro-card">
@@ -1291,7 +1066,7 @@ export default function IntroductionWriterPage() {
                   </div>
 
                   <details className="intro-details">
-                    <summary>最终引用 / 引用池</summary>
+                    <summary>最终参考文献</summary>
                     <pre className="intro-code">
                       {formatJson(job.final_references || job.citation_pool || [])}
                     </pre>
