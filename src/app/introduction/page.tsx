@@ -379,19 +379,23 @@ export default function IntroductionWriterPage() {
           gap: 22px;
           margin-top: 24px;
           align-items: start;
+          isolation: isolate;
         }
 
         .intro-stack {
           display: grid;
           gap: 22px;
+          min-width: 0;
         }
 
         .intro-card {
+          min-width: 0;
           border: 1px solid var(--intro-border);
           border-radius: var(--intro-radius);
           background: var(--intro-card);
           box-shadow: var(--intro-shadow-soft);
           backdrop-filter: blur(8px);
+          overflow: hidden;
         }
 
         .intro-card-header {
@@ -399,6 +403,7 @@ export default function IntroductionWriterPage() {
           gap: 14px;
           align-items: center;
           justify-content: space-between;
+          min-width: 0;
           padding: 22px 24px 0;
         }
 
@@ -422,7 +427,9 @@ export default function IntroductionWriterPage() {
         }
 
         .intro-card-body {
+          min-width: 0;
           padding: 22px 24px 24px;
+          overflow: hidden;
         }
 
         .intro-form-grid {
@@ -441,8 +448,12 @@ export default function IntroductionWriterPage() {
         .intro-textarea {
           display: block;
           width: 100%;
+          height: 210px;
           min-height: 210px;
-          resize: vertical;
+          max-height: 210px;
+          resize: none;
+          overflow-y: auto;
+          overflow-x: hidden;
           padding: 15px 16px;
           border: 1px solid var(--intro-border-strong);
           border-radius: 16px;
@@ -451,6 +462,9 @@ export default function IntroductionWriterPage() {
           font: inherit;
           font-size: 14px;
           line-height: 1.65;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          word-break: break-word;
           outline: none;
           transition: border-color 160ms ease, box-shadow 160ms ease;
         }
@@ -466,14 +480,17 @@ export default function IntroductionWriterPage() {
           gap: 14px;
           align-items: center;
           justify-content: space-between;
+          min-width: 0;
           padding: 16px;
           border: 1px dashed #b7c4d8;
           border-radius: 18px;
           background: linear-gradient(180deg, #ffffff, #f8fafc);
+          overflow: hidden;
         }
 
         .intro-file-info {
           min-width: 0;
+          flex: 1 1 auto;
         }
 
         .intro-file-title {
@@ -485,15 +502,20 @@ export default function IntroductionWriterPage() {
 
         .intro-file-name {
           margin: 4px 0 0;
+          max-height: 42px;
           color: var(--intro-muted);
           font-size: 12px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          line-height: 1.45;
+          overflow: auto;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .intro-file-input {
+          flex: 0 0 auto;
           max-width: 260px;
+          min-width: 0;
           color: var(--intro-muted);
           font-size: 13px;
         }
@@ -549,6 +571,7 @@ export default function IntroductionWriterPage() {
           display: flex;
           gap: 12px;
           align-items: flex-start;
+          min-width: 0;
           padding: 14px 16px;
           border: 1px solid rgba(37, 99, 235, 0.16);
           border-radius: 18px;
@@ -556,6 +579,8 @@ export default function IntroductionWriterPage() {
           color: #1e3a8a;
           font-size: 13px;
           line-height: 1.55;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .intro-message-icon {
@@ -734,6 +759,7 @@ export default function IntroductionWriterPage() {
         }
 
         .intro-output {
+          max-height: 620px;
           padding: 22px;
           border: 1px solid var(--intro-border);
           border-radius: 18px;
@@ -743,6 +769,9 @@ export default function IntroductionWriterPage() {
           font-size: 16px;
           line-height: 1.85;
           white-space: pre-wrap;
+          overflow: auto;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .intro-details {
@@ -763,6 +792,7 @@ export default function IntroductionWriterPage() {
         }
 
         .intro-code {
+          max-height: 420px;
           margin: 0;
           padding: 0 16px 16px;
           color: #334155;
@@ -770,6 +800,8 @@ export default function IntroductionWriterPage() {
           line-height: 1.55;
           white-space: pre-wrap;
           overflow: auto;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .intro-log-list {
@@ -785,6 +817,8 @@ export default function IntroductionWriterPage() {
           color: #334155;
           font-size: 12px;
           line-height: 1.55;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .intro-log-step {
@@ -834,6 +868,8 @@ export default function IntroductionWriterPage() {
           top: 20px;
           display: grid;
           gap: 22px;
+          min-width: 0;
+          z-index: 1;
         }
 
         @media (max-width: 920px) {
