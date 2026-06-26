@@ -11,13 +11,15 @@ function jsonResponse(data: unknown, status = 200) {
 }
 
 export async function POST(request: Request) {
-  const upstreamUrl = process.env.INTRO_SUBMIT_DIRECT_REFERENCES_URL;
+  const upstreamUrl =
+    process.env.INTRO_SUBMIT_REFERENCE_GROUP_URL ||
+    process.env.INTRO_SUBMIT_DIRECT_REFERENCES_URL;
 
   if (!upstreamUrl) {
     return jsonResponse(
       {
         status: "error",
-        message: "INTRO_SUBMIT_DIRECT_REFERENCES_URL is not configured.",
+        message: "INTRO_SUBMIT_REFERENCE_GROUP_URL is not configured.",
       },
       500
     );
