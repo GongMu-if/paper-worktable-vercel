@@ -389,7 +389,15 @@ export function MarkdownReport({
   );
 
   return (
-    <div className="report-markdown">
+    <div
+      className="report-markdown"
+      style={{
+        maxWidth: "100%",
+        overflowWrap: "anywhere",
+        wordBreak: "break-word",
+        whiteSpace: "normal",
+      }}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
         rehypePlugins={[rehypeRaw, rehypeKatex]}
