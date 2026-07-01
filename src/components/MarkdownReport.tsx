@@ -392,6 +392,7 @@ export function MarkdownReport({
     <div
       className="report-markdown"
       style={{
+        minWidth: 0,
         maxWidth: "100%",
         overflowWrap: "anywhere",
         wordBreak: "break-word",
