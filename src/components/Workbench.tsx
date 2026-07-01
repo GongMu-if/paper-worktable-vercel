@@ -874,6 +874,77 @@ export function Workbench() {
 
   return (
     <div className="app-shell" key={usernameKey}>
+      <style>{`
+        .main,
+        .grid-2,
+        .task-card,
+        .card,
+        .card-soft,
+        .selected-file-list,
+        .selected-file-item,
+        .report-markdown {
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .selected-file-name,
+        .history-item,
+        .card h1,
+        .card h2,
+        .card h3,
+        .card h4,
+        .card h5,
+        .card h6,
+        .card p,
+        .card-soft h1,
+        .card-soft h2,
+        .card-soft h3,
+        .card-soft h4,
+        .card-soft h5,
+        .card-soft h6,
+        .card-soft p,
+        .card-soft summary,
+        .report-markdown h1,
+        .report-markdown h2,
+        .report-markdown h3,
+        .report-markdown h4,
+        .report-markdown h5,
+        .report-markdown h6,
+        .report-markdown p,
+        .report-markdown li,
+        .report-markdown a,
+        .report-markdown strong,
+        .report-markdown em,
+        .report-markdown blockquote,
+        .report-markdown td,
+        .report-markdown th {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          white-space: normal;
+        }
+
+        .selected-file-item {
+          overflow: hidden;
+        }
+
+        .selected-file-name {
+          display: inline-block;
+          flex: 1 1 auto;
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .selected-file-item .button {
+          flex-shrink: 0;
+        }
+
+        .report-markdown pre,
+        .log-box {
+          max-width: 100%;
+          overflow-x: auto;
+        }
+      `}</style>
       <Sidebar
         username={currentUser}
         reports={reports}
