@@ -1,5 +1,7 @@
 "use client";
 
+import { ResearchNav } from "@/components/ResearchNav";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   authenticateUser,
@@ -169,6 +171,7 @@ function LoginCard({ onLogin }: { onLogin: (username: string) => void }) {
     <div className="auth-wrap">
       <div className="auth-card stack">
         <div>
+          <div className="auth-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><rect x="8" y="4" width="18" height="23" rx="3" stroke="currentColor" strokeWidth="1.6" /><path d="M5 9v16a5 5 0 0 0 5 5M13 11h8M13 16h8M13 21h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg></div>
           <h1>学术文献智能工作台</h1>
           <p className="muted">请登录研究工作区。系统会为每个账号独立保存文献检索记录与论文精读报告。</p>
         </div>
@@ -324,7 +327,7 @@ function AnalysisReportView({ analysisResult, sourceName, cacheKey, statusText =
 
 function WorkspaceIntro() {
   return (
-    <div className="card stack">
+    <div className="card stack workspace-guide">
       <h2>当前工作区</h2>
       <p>从这里选择你要进行的任务。你可以先输入研究主题进行文献检索，也可以直接上传已有论文进行精读。任务提交后，即使离开页面，稍后重新登录也可以继续查看结果。</p>
       <div className="grid-2">
@@ -341,7 +344,7 @@ function WorkspaceIntro() {
   );
 }
 
-export function Workbench() {
+export function Workbench({ tool = "all" }: { tool?: "all" | "search" | "reading" }) {
   const [currentUser, setCurrentUser] = useState("");
   const [configVersion, setConfigVersion] = useState("");
   const [reports, setReports] = useState<ReportMeta[]>([]);
@@ -866,14 +869,19 @@ export function Workbench() {
     }
   }
 
-  if (!currentUser) return <LoginCard onLogin={login} />;
+  if (!currentUser) return (
+    <div className="business-login">
+      <ResearchNav active={tool === "all" ? "workspace" : tool} />
+      <LoginCard onLogin={login} />
+    </div>
+  );
 
   const currentSearchState = searches.find((item) => item.search_job_id === activeSearchJobId);
   const pendingRows = batchRows.filter((row) => ["queued", "processing"].includes((row.status || "").toLowerCase()));
   const selectedPendingReport = selectedReportMeta && ["queued", "processing"].includes((selectedReportMeta.status || "").toLowerCase());
 
   return (
-    <div className="app-shell" key={usernameKey}>
+    <div className={`app-shell tool-${tool}`} key={usernameKey}>
       <style>{`
         .main,
         .grid-2,
@@ -945,6 +953,12 @@ export function Workbench() {
           overflow-x: auto;
         }
       `}</style>
+      <ResearchNav active={tool === "all" ? "workspace" : tool} />
+        <header className="workspace-heading">
+          <div><p className="eyebrow"><a href="/">首页</a> / {tool === "search" ? "文献检索" : tool === "reading" ? "论文精读" : "我的工作区"}</p>
+            <h1>{tool === "search" ? "文献检索" : tool === "reading" ? "论文精读" : "文献检索与论文精读"}</h1>
+            <p className="muted">{tool === "search" ? "输入研究主题与筛选要求，找到值得深入阅读的文献。" : tool === "reading" ? "上传论文 PDF，梳理研究方法与核心结论，沉淀你的阅读笔记。" : "从研究主题出发，检索相关文献，生成结构化精读报告。"}</p></div>
+        </header>
       <Sidebar
         username={currentUser}
         reports={reports}
@@ -958,12 +972,13 @@ export function Workbench() {
         onSelectSearch={loadSearchView}
       />
       <main className="main stack">
+
         {error ? <div className="notice error">{error}</div> : null}
         {message ? <div className="notice">{message}</div> : null}
 
         <section className="grid-2 task-grid">
-          <div className="card stack task-card">
-            <h2>文献检索</h2>
+          {tool !== "reading" && (<div className="card stack task-card">
+            <h2 className="task-heading"><span aria-hidden="true">01</span>文献检索<small>DISCOVER</small></h2>
             <div className="stack-sm">
               <label className="small">研究主题</label>
               <input className="input" value={searchTopic} onChange={(event) => setSearchTopic(event.target.value)} placeholder="输入研究主题" />
@@ -977,11 +992,15 @@ export function Workbench() {
               <option>接受预印本 (如 arXiv)</option>
             </select>
             <button className="button full" onClick={startPaperSearch} disabled={!searchTopic.trim() || appState === "SEARCH_RUNNING"}>启动文献检索任务</button>
-          </div>
+          </div>)}
 
-          <div className="card stack task-card">
-            <h2>论文精读入口</h2>
+          {tool !== "search" && (<div className="card stack task-card">
+            <h2 className="task-heading"><span aria-hidden="true">02</span>论文精读入口<small>READ</small></h2>
             <p className="muted">上传一篇或多篇 PDF，后端会分别生成结构化精读报告并保存到当前账号档案。</p>
+            <div className="pdf-upload">
+              <svg className="upload-symbol" aria-hidden="true" viewBox="0 0 40 40" fill="none"><path d="M12 5h12l7 7v21a2 2 0 0 1-2 2H12a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.4" /><path d="M24 5v8h7M20 28V18m-4 4 4-4 4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              <strong>选择需要精读的论文</strong>
+              <span>PDF 格式 · 支持多篇上传</span>
             <input
               ref={fileInputRef}
               className="file-input"
@@ -990,6 +1009,7 @@ export function Workbench() {
               multiple
               onChange={(event) => addPdfFiles(Array.from(event.target.files || []))}
             />
+            </div>
             {pdfFiles.length ? (
               <div className="selected-file-list">
                 {pdfFiles.map((file, index) => (
@@ -1004,7 +1024,7 @@ export function Workbench() {
               <p className="small">尚未选择 PDF。可以多次点击“选择文件”追加论文。</p>
             )}
             <button className="button full" disabled={!pdfFiles.length || analysisSubmitting} onClick={() => startAnalysis(pdfFiles)}>{analysisSubmitting ? "正在提交..." : "启动深度解析"}</button>
-          </div>
+          </div>)}
         </section>
 
         {appState === "SEARCH_RUNNING" ? (
