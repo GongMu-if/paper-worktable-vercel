@@ -1,5 +1,7 @@
 "use client";
 
+import { ResearchNav } from "@/components/ResearchNav";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   getIntroJob,
@@ -906,6 +908,7 @@ export default function IntroductionWriterPage() {
       `}</style>
 
       <div className="intro-container">
+        <ResearchNav active="introduction" />
         <section className="intro-hero">
           <div>
             <div className="intro-kicker">
