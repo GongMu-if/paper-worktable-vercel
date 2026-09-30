@@ -1,6 +1,8 @@
 // src/app/reviewer/page.tsx
 "use client";
 
+import { ResearchNav } from "@/components/ResearchNav";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   clearReviewerHistory,
@@ -1246,6 +1248,7 @@ export default function ReviewerPage() {
       `}</style>
 
       <div className="reviewer-container">
+        <ResearchNav active="reviewer" />
         <section className="reviewer-hero">
           <div>
             <div className="reviewer-kicker">
