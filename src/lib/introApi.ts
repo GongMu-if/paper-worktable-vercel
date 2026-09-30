@@ -1,3 +1,4 @@
+import { readResearchUsername } from "./researchAccount";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export type IntroJob = {
@@ -186,8 +187,8 @@ export async function introRpc(
   return data;
 }
 
-export async function getIntroJob(jobId: string): Promise<IntroJob> {
-  const result = await introRpc("get_job", { job_id: jobId });
+export async function getIntroJob(jobId: string, userId = readResearchUsername()): Promise<IntroJob> {
+  const result = await introRpc("get_job", { job_id: jobId, user_id: userId });
 
   if (result?.status !== "ok") {
     throw new Error(result?.message || "无法读取 Introduction 任务。");
@@ -196,8 +197,8 @@ export async function getIntroJob(jobId: string): Promise<IntroJob> {
   return result?.data || {};
 }
 
-export async function getIntroLogs(jobId: string): Promise<any[]> {
-  const result = await introRpc("get_logs", { job_id: jobId });
+export async function getIntroLogs(jobId: string, userId = readResearchUsername()): Promise<any[]> {
+  const result = await introRpc("get_logs", { job_id: jobId, user_id: userId });
 
   if (result?.status !== "ok") {
     return [];
