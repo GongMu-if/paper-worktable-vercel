@@ -1,61 +1,55 @@
-# V3 白色统一首页版 · 学术文献智能工作台
+import Image from "next/image";
+import { ResearchNav } from "@/components/ResearchNav";
 
-保留原平台名称，使用白色背景、浅灰边框和深灰文字。主页加入简洁的白色书页自然光背景，并以四张卡片说明每种业务的用途。卡片点击进入独立业务页面。
+const services = [
+  { id: "search", number: "01", name: "文献检索", href: "/search", lead: "从一个问题，找到相关研究。", summary: "输入研究主题与筛选偏好，获取候选文献；支持反馈修正，让检索结果更贴近你的课题。", tags: ["主题检索", "筛选与反馈"], path: "M21 21l-5-5M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" },
+  { id: "reading", number: "02", name: "论文精读", href: "/reading", lead: "读懂方法，也读懂背后的思路。", summary: "上传一篇或多篇论文 PDF，生成结构化精读报告，梳理研究内容，并保存到账号档案。", tags: ["PDF 解析", "报告导出"], path: "M12 5v15M3 4c4-1 6 0 9 2 3-2 5-3 9-2v15c-4-1-6 0-9 2-3-2-5-3-9-2V4Z" },
+  { id: "introduction", number: "03", name: "引言写作", href: "/introduction", lead: "让研究创新，成为清晰的表达。", summary: "上传参考论文并填写创新点，结合文献证据生成英文 Introduction，通过审查与修改完善初稿。", tags: ["参考文献驱动", "英文引言"], path: "m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14v6ZM13 21h8" },
+  { id: "reviewer", number: "04", name: "批量审稿", href: "/reviewer", lead: "以审稿视角，重新审视论文。", summary: "批量上传待审论文，辅助判断期刊适配性，整理整体评价、中文评语与英文学术翻译。", tags: ["批量处理", "中英审稿意见"], path: "M8 3h10a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2Zm0 5h8m-8 5 2 2 5-5M8 18h8" },
+];
 
-## 页面结构
+export default function Home() {
+  return (
+    <div className="portal-shell">
+      <ResearchNav active="home" />
+      <main>
+        <section className="portal-hero" aria-labelledby="portal-title">
+          <Image className="portal-hero-image" src="/images/research-white.png" alt="" fill priority sizes="(max-width: 1600px) 100vw, 1536px" />
+          <div className="portal-hero-copy">
+            <p className="portal-kicker"><span /> 一站式学术研究空间</p>
+            <h1 id="portal-title">专注思考，<br />让研究有序发生。</h1>
+            <p className="portal-hero-description">从文献检索到论文精读，从引言写作到审稿辅助。<br />选择你需要的工具，开始下一步研究。</p>
+            <a className="portal-cta" href="#services">选择研究工具 <span aria-hidden="true">↓</span></a>
+          </div>
+          <span className="portal-hero-caption">阅读 · 理解 · 写作 · 审视</span>
+        </section>
 
-- /：新的统一首页，无需登录即可浏览工具介绍。
-- /search：文献检索，复用原工作台的登录、检索、反馈和归档功能。
-- /reading：论文精读，复用原工作台的登录、上传、解析和报告功能。
-- /introduction：保留原有引言写作页面。
-- /reviewer：保留原有批量审稿页面。
-- /workspace：原有完整检索与精读工作台，保留历史记录入口。
+        <section className="portal-services" id="services" aria-labelledby="services-title">
+          <div className="portal-section-heading">
+            <div><p className="portal-section-label">研究工具</p><h2 id="services-title">从你现在的任务开始</h2></div>
+            <p>四种工具，一条连贯的研究路径。</p>
+          </div>
+          <div className="service-grid">
+            {services.map(service => (
+              <a className={`service-card service-${service.id}`} href={service.href} key={service.id} aria-label={`进入${service.name}`}>
+                <div className="service-card-top"><span className="service-icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d={service.path} stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" /></svg></span><span className="service-number">{service.number}</span></div>
+                <h3>{service.name}</h3>
+                <p className="service-lead">{service.lead}</p>
+                <p className="service-summary">{service.summary}</p>
+                <div className="service-tags">{service.tags.map(tag => <span key={tag}>{tag}</span>)}</div>
+                <div className="service-entry">进入{service.name}<span aria-hidden="true">↗</span></div>
+              </a>
+            ))}
+          </div>
+        </section>
 
-首页从原工作台调整为工具入口；原工作台可通过「我的工作区」继续使用。各业务仍使用原有认证机制，不会绕过登录，也未合并原本不同的账号流程。
-
-## 使用方法
-
-先备份原项目，再使用「V3-白色版更新包.zip」。解压后把 src 和 public 两个目录合并到项目根目录，覆盖同名文件。不要删除整个旧 src；public 中的背景图片必须一起复制。
-
-也可直接使用「V3-白色版完整源码.zip」，解压后恢复原有环境变量，按原部署方式安装和构建：
-
-    npm install
-    npm run build
-    npm run start
-
-依赖清单未改变，没有添加 npm 依赖。源码包不含 node_modules、.next、预览测试账号或本地测试工具。不包含生产环境变量，请继续使用原配置。此次没有上传 GitHub 或部署到线上。
-
-## 修改范围
-
-修改 5 个原文件：
-- src/app/page.tsx：统一首页及业务摘要卡片。
-- src/app/globals.css：白色主题、背景与响应式布局。
-- src/components/Workbench.tsx：增加 tool 展示参数，分别展示检索或精读表单；补充首页导航与背景。
-- src/app/introduction/page.tsx：增加统一导航。
-- src/app/reviewer/page.tsx：增加统一导航。
-
-新增 5 个文件：
-- src/components/ResearchNav.tsx
-- src/app/search/page.tsx
-- src/app/reading/page.tsx
-- src/app/workspace/page.tsx
-- public/images/research-white.png
-
-## 验证结果和边界
-
-- npm run build 成功，TypeScript 检查通过，新增三个路由正确生成。
-- src/app/api、src/lib 及 package.json、next.config.ts、tsconfig.json 共 27 个文件与最初提供的 ZIP 逐字节一致。
-- TypeScript AST 对比：显式排除新增的 tool 展示参数、导航 import 和 JSX 展示内容后，三个修改页面原有业务代码一致；118 个原有事件绑定、值绑定、禁用条件、ref、文件格式等行为属性一致。
-- 静态渲染验证：/search 只显示文献检索表单，/reading 只显示论文精读表单，/workspace 保留原工作台。
-- 浏览器验证：四张首页卡片跳转到正确路由；返回首页及工作区入口可用。桌面和 390px 手机布局已检查。
-- 文献检索和论文精读页的业务区效果图使用离线示例账号渲染，仅验证布局，不调用真实任务接口。
-- 没有连接生产账号进行登录、上传、任务处理、结果导出的端到端回归。本地没有配置真实后端，不能据此声称生产业务已经验证。请在原环境验证以上流程后上线。
-
-## 图片来源
-
-使用内置 image_gen 工具生成，最终选用白色书页图片，未使用之前被否定的蓝色图或复杂图。图片随项目本地打包，不依赖第三方图片链接。
-项目文件：public/images/research-white.png
-单独交付：V3-白色书页背景.png
-最终提示词：
-
-Minimal editorial photograph for a white academic website banner. Panoramic 2.5:1 composition. One plain white open paperback book at the far right on a pure white matte desk, soft natural daylight from a window, gentle neutral grey shadows and faint soft window shadow. White wall background, white-on-white palette, no blue tint, no green, no colored tint, no beige or yellow tint. Left 65 percent calm nearly white for dark text overlay. Photorealistic tactile paper, light airy understated composition. No objects other than the book, no decorations, no floating objects, no glass, no metallic elements, no landscape. No legible text, no logos, no watermark, no UI. Simple and clean.
+        <section className="portal-continuity" aria-label="继续已有研究">
+          <div className="continuity-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16v14H4V5Zm4-3v5m8-5v5M8 11h8m-8 4h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg></div>
+          <div><h2>每一次研究，都有迹可循。</h2><p>回到工作区，查看文献检索记录与已保存的精读报告。</p></div>
+          <a href="/workspace">打开我的工作区 <span aria-hidden="true">→</span></a>
+        </section>
+      </main>
+      <footer className="portal-footer"><span>学术文献智能工作台</span><span>让工具处理繁复，让思考回归研究。</span></footer>
+    </div>
+  );
+}
