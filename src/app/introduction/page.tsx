@@ -1,5 +1,6 @@
 "use client";
 
+import { ResearchAccountGate } from "@/components/ResearchAccountGate";
 import { ResearchNav } from "@/components/ResearchNav";
 
 import { useEffect, useMemo, useState } from "react";
@@ -10,17 +11,6 @@ import {
   submitDirectReferencePapers,
   type IntroJob,
 } from "@/lib/introApi";
-
-function getClientUserId() {
-  if (typeof window === "undefined") return "";
-
-  return (
-    window.localStorage.getItem("user_id") ||
-    window.localStorage.getItem("username") ||
-    window.localStorage.getItem("current_user") ||
-    "anonymous"
-  );
-}
 
 function formatJson(value: unknown) {
   try {
@@ -86,7 +76,14 @@ function 阶段Pill({ stage }: { stage?: string }) {
 }
 
 export default function IntroductionWriterPage() {
-  const [userId, setUserId] = useState("");
+  return (
+    <ResearchAccountGate active="introduction">
+      {(username, logout) => <IntroductionWriterSession key={username} userId={username} onLogout={logout} />}
+    </ResearchAccountGate>
+  );
+}
+
+function IntroductionWriterSession({ userId, onLogout }: { userId: string; onLogout: () => void }) {
   const [innovationText, setInnovationText] = useState("");
   const [directFiles, setDirectFiles] = useState<File[]>([]);
   const [manuscriptFile, setManuscriptFile] = useState<File | null>(null);
@@ -106,18 +103,13 @@ export default function IntroductionWriterPage() {
     return Boolean(jobId && ["queued", "processing"].includes(status));
   }, [jobId, status]);
 
-  useEffect(() => {
-    const uid = getClientUserId();
-    setUserId(uid);
-  }, []);
-
   async function refreshJob(currentJobId = jobId) {
     if (!currentJobId) return;
 
-    const nextJob = await getIntroJob(currentJobId);
+    const nextJob = await getIntroJob(currentJobId, userId);
     setJob(nextJob);
 
-    const nextLogs = await getIntroLogs(currentJobId);
+    const nextLogs = await getIntroLogs(currentJobId, userId);
     setLogs(nextLogs);
   }
 
@@ -909,6 +901,10 @@ export default function IntroductionWriterPage() {
 
       <div className="intro-container">
         <ResearchNav active="introduction" />
+        <div className="row-wrap" style={{ justifyContent: "flex-end", marginBottom: 16 }}>
+          <span className="small">当前账号：{userId}</span>
+          <button className="button secondary" onClick={onLogout}>退出</button>
+        </div>
         <section className="intro-hero">
           <div>
             <div className="intro-kicker">
