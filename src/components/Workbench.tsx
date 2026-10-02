@@ -69,13 +69,11 @@ function searchHistoryLabel(meta: SearchMeta): string {
 }
 
 function reportHistoryLabel(meta: ReportMeta): string {
-  const displayName = meta.source_name || meta.report_title || "未命名论文";
-  const shortName = shorten(displayName, 18);
+  const displayName = meta.report_title?.trim() || meta.source_name?.trim() || "未命名论文";
   const status = (meta.status || "").toLowerCase();
-  if (["queued", "processing"].includes(status)) return `${shortName}｜正在解析中`;
-  if (status === "failed") return `${shortName}｜解析失败`;
-  const timestamp = (meta.updated_at || meta.created_at || "").slice(0, 16);
-  return timestamp ? `${shortName}｜${timestamp}` : shortName;
+  if (["queued", "processing"].includes(status)) return `${displayName}｜正在解析中`;
+  if (status === "failed") return `${displayName}｜解析失败`;
+  return displayName;
 }
 
 function parseHistoryTime(value: string | undefined): number {
@@ -168,7 +166,7 @@ function Sidebar({
           {reports.length ? reports.map((item) => (
             <button
               key={item.report_id}
-              className={`history-item ${selectedReportId === item.report_id ? "active" : ""}`}
+              className={`history-item report-history-item ${selectedReportId === item.report_id ? "active" : ""}`}
               onClick={() => onSelectReport(item.report_id)}
             >
               {reportHistoryLabel(item)}
@@ -850,6 +848,17 @@ function WorkbenchSession({ tool, username, onLogout }: {
           white-space: normal;
         }
 
+        .report-history-item {
+          display: block;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          overflow: visible;
+          text-overflow: clip;
+          -webkit-line-clamp: unset;
+          max-height: none;
+        }
+
         .selected-file-item {
           overflow: hidden;
         }
@@ -953,18 +962,6 @@ function WorkbenchSession({ tool, username, onLogout }: {
           </div>
         ) : null}
 
-        {appState !== "IDLE" && uiLogs.length ? (
-          <div className="card stack">
-            <h2>检索 Agent 执行轨迹</h2>
-            {uiLogs.map((log, index) => (
-              <details key={index} className="card-soft">
-                <summary>{log.title}</summary>
-                <MarkdownReport markdown={log.content} normalize={false} />
-              </details>
-            ))}
-          </div>
-        ) : null}
-
         {appState === "WAITING_FEEDBACK" ? (
           <div className="card stack">
             <h2>候选文献组合</h2>
@@ -985,7 +982,7 @@ function WorkbenchSession({ tool, username, onLogout }: {
           <div className="card stack">
             <div className="notice success">文献检索任务已确认归档。</div>
             {hasProvidedFeedback === false ? null : <p className="small">本次结果包含修正后的检索条件。</p>}
-            <h2>最终确认的六篇候选文献</h2>
+            <h2>最终确认的候选文献</h2>
             <div className="card-soft"><MarkdownReport markdown={finalResult} normalize={false} /></div>
           </div>
         ) : null}
@@ -996,33 +993,20 @@ function WorkbenchSession({ tool, username, onLogout }: {
           <div className="card stack">
             <h2>文献检索档案：{selectedSearchRecord.meta.topic || "论文检索"}</h2>
             {selectedSearchRecord.meta.requirements ? <div className="card-soft"><strong>筛选约束：</strong><MarkdownReport markdown={selectedSearchRecord.meta.requirements} normalize={false} /></div> : null}
-            {(selectedSearchRecord.agent_logs || []).length ? (
-              <div className="stack">
-                <h3>检索 Agent 执行轨迹</h3>
-                {buildSearchUiLogs(selectedSearchRecord.agent_logs).map((log, index) => (
-                  <details key={index} className="card-soft">
-                    <summary>{log.title}</summary>
-                    <MarkdownReport markdown={log.content} normalize={false} />
-                  </details>
-                ))}
-              </div>
-            ) : null}
-            <h3>六篇候选文献</h3>
+            <h3>候选文献</h3>
             <div className="card-soft"><MarkdownReport markdown={selectedSearchRecord.result_markdown || "该历史检索暂无结果。"} normalize={false} /></div>
           </div>
         ) : null}
 
         {view.type === "report" ? (
           <div className="card stack">
-            <h2>{selectedReportMeta?.source_name || selectedReportMeta?.report_title || "历史报告"}</h2>
+            <h2>{selectedReportMeta?.report_title || selectedReportMeta?.source_name || "历史报告"}</h2>
             {selectedPendingReport ? (
               <>
                 <div className="notice">《{selectedReportMeta?.source_name || "未命名论文"}》当前状态：{selectedReportMeta?.progress_text || "后台任务正在运行中。"}</div>
-                <AgentLogs logs={selectedReportLogs} />
               </>
             ) : selectedReportRecord ? (
               <>
-                <AgentLogs logs={selectedReportLogs} />
                 <AnalysisReportView analysisResult={selectedReportRecord} cacheKey={selectedReportMeta?.cache_key || view.reportId} sourceName={selectedReportMeta?.source_name || "历史报告"} statusText="历史报告已载入，无需重新解析。" />
               </>
             ) : (
