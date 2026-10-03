@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
   formData.append("payload", JSON.stringify(body.payload || {}));
 
   let upstream: Response;
+  const upstreamStarted = performance.now();
   try {
     upstream = await fetch(rpcUrl, {
       method: "POST",
@@ -63,6 +64,10 @@ export async function POST(request: NextRequest) {
   }
 
   const text = await upstream.text();
+  const timingHeaders = {
+    "Server-Timing": `modal;dur=${(performance.now() - upstreamStarted).toFixed(1)}`,
+    "Cache-Control": "private, no-store",
+  };
   let parsed: unknown = null;
 
   try {
@@ -82,12 +87,12 @@ export async function POST(request: NextRequest) {
           upstream_body: parsed ?? trimText(text),
         },
       },
-      { status: upstream.status },
+      { status: upstream.status, headers: timingHeaders },
     );
   }
 
   if (parsed && typeof parsed === "object") {
-    return NextResponse.json(parsed, { status: upstream.status });
+    return NextResponse.json(parsed, { status: upstream.status, headers: timingHeaders });
   }
 
   return NextResponse.json(
@@ -99,6 +104,6 @@ export async function POST(request: NextRequest) {
         upstream_body: trimText(text),
       },
     },
-    { status: 502 },
+    { status: 502, headers: timingHeaders },
   );
 }
