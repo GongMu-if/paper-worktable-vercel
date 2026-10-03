@@ -7,15 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createOrReuseAnalysisJob,
   createPaperSearchJob,
-  ensureAppStorage,
   finalizePaperSearchJob,
   getPublicBackendConfig,
-  getUserJobState,
   getUserSearchJobState,
-  loadAgentLogs,
-  loadUserReportIndex,
-  loadUserReportRecord,
-  loadUserSearchIndex,
+  loadReportViewBundle,
   loadUserSearchRecord,
   markPaperSearchJobSuperseded,
   submitAnalysisJob,
@@ -24,10 +19,11 @@ import {
   updatePaperSearchJobStatus,
 } from "@/lib/api";
 import { buildExportFilename, getPdfCacheKey } from "@/lib/hash";
+import { fetchWorkbench, peekWorkbench, refreshLegacyTitles, mergeReportTitles } from "@/lib/workbenchCache";
 import type { AgentLog, AnalysisResult, BatchRow, ReadyReport, ReportMeta, SearchMeta, SearchRecord } from "@/lib/types";
 import { MarkdownReport } from "./MarkdownReport";
 
-const JOB_STATUS_REFRESH_INTERVAL_MS = 180000;
+const JOB_STATUS_REFRESH_INTERVAL_MS = 30000;
 const DEFAULT_PREPRINT_RULE = "排除预印本 (仅限正规期刊/会议)";
 const MAX_ANALYSIS_SUBMIT_CONCURRENCY = 1; // 原 PDF 解析 API 不稳定时保持 1；确认服务支持后可改为 2。
 
@@ -129,6 +125,7 @@ function Sidebar({
   username,
   reports,
   searches,
+  loading,
   selectedReportId,
   selectedSearchId,
   onRefresh,
@@ -140,6 +137,7 @@ function Sidebar({
   username: string;
   reports: ReportMeta[];
   searches: SearchMeta[];
+  loading: boolean;
   selectedReportId: string | null;
   selectedSearchId: string | null;
   onRefresh: () => void;
@@ -154,7 +152,7 @@ function Sidebar({
         <h2>工作台</h2>
         <p className="small">当前账号：{username}</p>
         <div className="row-wrap" style={{ marginTop: 10 }}>
-          <button className="button secondary" onClick={onRefresh}>刷新</button>
+          <button className="button secondary" onClick={onRefresh} disabled={loading}>{loading ? "正在刷新…" : "刷新"}</button>
           <button className="button secondary" onClick={onSelectWorkspace}>当前工作区</button>
           <button className="button secondary" onClick={onLogout}>退出</button>
         </div>
@@ -171,7 +169,7 @@ function Sidebar({
             >
               {reportHistoryLabel(item)}
             </button>
-          )) : <p className="small">当前账号暂无精读报告档案。</p>}
+          )) : <p className="small" role="status">{loading ? "正在加载精读报告档案…" : "当前账号暂无精读报告档案。"}</p>}
         </div>
       </div>
       <div className="divider" />
@@ -186,7 +184,7 @@ function Sidebar({
             >
               {searchHistoryLabel(item)}
             </button>
-          )) : <p className="small">当前账号暂无文献检索档案。</p>}
+          )) : <p className="small" role="status">{loading ? "正在加载文献检索档案…" : "当前账号暂无文献检索档案。"}</p>}
         </div>
       </div>
       <p className="small">历史报告会长期保留，可在重新登录后继续查看。</p>
@@ -282,8 +280,8 @@ function WorkbenchSession({ tool, username, onLogout }: {
 }) {
   const currentUser = username;
   const [configVersion, setConfigVersion] = useState("");
-  const [reports, setReports] = useState<ReportMeta[]>([]);
-  const [searches, setSearches] = useState<SearchMeta[]>([]);
+  const [reports, setReports] = useState<ReportMeta[]>(() => peekWorkbench(username)?.reports || []);
+  const [searches, setSearches] = useState<SearchMeta[]>(() => peekWorkbench(username)?.searches || []);
   const [view, setView] = useState<MainView>({ type: "workspace" });
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedSearchId, setSelectedSearchId] = useState<string | null>(null);
@@ -309,41 +307,57 @@ function WorkbenchSession({ tool, username, onLogout }: {
   const [newFeedback, setNewFeedback] = useState("");
   const [activeSearchContext, setActiveSearchContext] = useState<SearchContext | null>(null);
   const [analysisSubmitting, setAnalysisSubmitting] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(!peekWorkbench(username));
+  const [reportLoading, setReportLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mountedRef = useRef(true);
+  const historyRequestRef = useRef(0);
+  const viewRequestRef = useRef(0);
 
   const usernameKey = useMemo(() => canonicalUsername(currentUser), [currentUser]);
 
-  const refreshHistories = useCallback(async (username = currentUser) => {
+  const refreshHistories = useCallback(async (username = currentUser, force = true) => {
     if (!username) return;
-    const [reportIndex, searchIndex] = await Promise.all([
-      loadUserReportIndex(username),
-      loadUserSearchIndex(username),
-    ]);
-    setReports(reportIndex || []);
-    setSearches(searchIndex || []);
+    const request = ++historyRequestRef.current;
+    setHistoryLoading(true);
+    try {
+      const snapshot = await fetchWorkbench(username, force);
+      if (!mountedRef.current || request !== historyRequestRef.current) return;
+      setConfigVersion(snapshot.config.analysis_cache_version || "");
+      setReports(snapshot.reports || []);
+      setSearches(snapshot.searches || []);
+      void refreshLegacyTitles(username, snapshot.reports || []).then(titles => {
+        if (!mountedRef.current || !titles.length) return;
+        setReports(previous => mergeReportTitles(previous, titles));
+        setSelectedReportMeta(previous => previous ? mergeReportTitles([previous], titles)[0] : previous);
+      });
+    } catch (err) {
+      if (mountedRef.current && request === historyRequestRef.current) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (mountedRef.current && request === historyRequestRef.current) setHistoryLoading(false);
+    }
   }, [currentUser]);
 
   useEffect(() => {
     if (!currentUser) return;
-    let cancelled = false;
-    async function init() {
-      try {
-        await ensureAppStorage();
-        const cfg = await getPublicBackendConfig();
-        if (!cancelled) setConfigVersion(cfg.analysis_cache_version || "");
-        await refreshHistories(currentUser);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    }
-    init();
-    return () => { cancelled = true; };
+    mountedRef.current = true;
+    void refreshHistories(currentUser, false);
+    return () => {
+      mountedRef.current = false;
+      historyRequestRef.current += 1;
+      viewRequestRef.current += 1;
+    };
   }, [currentUser, refreshHistories]);
 
   useEffect(() => {
     if (!activeSearchJobId || !currentUser || appState !== "SEARCH_RUNNING") return;
     let cancelled = false;
+    let inFlight = false;
     async function poll() {
+      if (inFlight || cancelled) return;
+      inFlight = true;
       try {
         const meta = await getUserSearchJobState(currentUser, activeSearchJobId);
         if (cancelled || !meta) return;
@@ -367,6 +381,8 @@ function WorkbenchSession({ tool, username, onLogout }: {
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        inFlight = false;
       }
     }
     poll();
@@ -409,6 +425,8 @@ function WorkbenchSession({ tool, username, onLogout }: {
   }
 
   function resetWorkspace() {
+    viewRequestRef.current += 1;
+    setReportLoading(false);
     setSelectedReportId(null);
     setSelectedSearchId(null);
     setSelectedReportRecord(null);
@@ -562,37 +580,30 @@ function WorkbenchSession({ tool, username, onLogout }: {
   }
 
   async function loadReportView(reportId: string) {
+    const request = ++viewRequestRef.current;
     setError("");
+    setReportLoading(true);
     setSelectedReportId(reportId);
     setSelectedSearchId(null);
     setView({ type: "report", reportId });
     setSelectedReportRecord(null);
-    setSelectedReportMeta(null);
+    setSelectedReportMeta(reports.find(item => item.report_id === reportId) || null);
     setSelectedReportLogs([]);
     try {
-      const meta = await getUserJobState(currentUser, reportId);
-      setSelectedReportMeta(meta);
-      const status = (meta?.status || "").toLowerCase();
-      if (status === "finished") {
-        const [payload, logs] = await Promise.all([
-          loadUserReportRecord(currentUser, reportId),
-          loadAgentLogs(currentUser, reportId),
-        ]);
-        if (payload) {
-          setSelectedReportMeta(payload.meta);
-          setSelectedReportRecord(payload.analysis_result);
-        }
-        setSelectedReportLogs(logs || []);
-      } else {
-        const logs = await loadAgentLogs(currentUser, reportId);
-        setSelectedReportLogs(logs || []);
-      }
+      const bundle = await loadReportViewBundle(currentUser, reportId);
+      if (!mountedRef.current || request !== viewRequestRef.current) return;
+      setSelectedReportMeta(bundle.meta);
+      setSelectedReportRecord(bundle.payload?.analysis_result || null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (mountedRef.current && request === viewRequestRef.current) setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (mountedRef.current && request === viewRequestRef.current) setReportLoading(false);
     }
   }
 
   async function loadSearchView(searchJobId: string) {
+    const request = ++viewRequestRef.current;
+    setReportLoading(false);
     setError("");
     setSelectedSearchId(searchJobId);
     setSelectedReportId(null);
@@ -600,6 +611,7 @@ function WorkbenchSession({ tool, username, onLogout }: {
     setSelectedSearchRecord(null);
     try {
       const record = await loadUserSearchRecord(currentUser, searchJobId);
+      if (!mountedRef.current || request !== viewRequestRef.current) return;
       if (!record) {
         setError("未找到该文献检索档案，可能已被删除。");
         return;
@@ -625,7 +637,7 @@ function WorkbenchSession({ tool, username, onLogout }: {
       }
       setSelectedSearchRecord(record);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (mountedRef.current && request === viewRequestRef.current) setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -890,6 +902,7 @@ function WorkbenchSession({ tool, username, onLogout }: {
         username={currentUser}
         reports={reports}
         searches={searches}
+        loading={historyLoading}
         selectedReportId={selectedReportId}
         selectedSearchId={selectedSearchId}
         onRefresh={resetToInitialView}
@@ -1001,7 +1014,7 @@ function WorkbenchSession({ tool, username, onLogout }: {
         {view.type === "report" ? (
           <div className="card stack">
             <h2>{selectedReportMeta?.report_title || selectedReportMeta?.source_name || "历史报告"}</h2>
-            {selectedPendingReport ? (
+            {reportLoading ? <div className="notice" role="status">正在加载报告内容…</div> : selectedPendingReport ? (
               <>
                 <div className="notice">《{selectedReportMeta?.source_name || "未命名论文"}》当前状态：{selectedReportMeta?.progress_text || "后台任务正在运行中。"}</div>
               </>
